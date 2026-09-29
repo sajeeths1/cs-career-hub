@@ -1,0 +1,46 @@
+Table profiles {
+  id uuid [pk, note: 'Same ID as the Supabase Auth user']
+  name varchar
+  preferred_role varchar
+  location varchar
+}
+
+Table companies {
+  id uuid [pk]
+  name varchar [not null]
+  website varchar
+}
+
+Table jobs {
+  id uuid [pk]
+  company_id uuid [not null]
+  title varchar [not null]
+  description text
+  location varchar
+  work_mode varchar [note: 'remote, hybrid, or in_person']
+  application_url varchar [not null]
+  source varchar [not null]
+  source_job_id varchar [not null]
+  posted_at timestamp
+  is_active boolean [default: true]
+
+  indexes {
+    (source, source_job_id) [unique]
+  }
+}
+
+Table applications {
+  id uuid [pk]
+  user_id uuid [not null]
+  job_id uuid [not null]
+  status varchar [not null, default: 'not_applied']
+  updated_at timestamp
+
+  indexes {
+    (user_id, job_id) [unique]
+  }
+}
+
+Ref: jobs.company_id > companies.id
+Ref: applications.user_id > profiles.id
+Ref: applications.job_id > jobs.id
