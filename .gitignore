@@ -149,6 +149,19 @@ activemq-data/
 
 # Environments
 .env
+
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 .envrc
 .venv
 env/
