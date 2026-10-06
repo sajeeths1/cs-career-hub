@@ -1,12 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Save } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { profileDefaults } from "@/lib/mock-data";
+import { fetchProfile, saveProfile } from "@/lib/data";
 
 const profileSchema = z.object({
   name: z.string().min(2, "Enter your name"),
@@ -17,23 +18,50 @@ const profileSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
-export function ProfileForm() {
+/** Loads and saves the signed-in student's row in the `profiles` table. */
+export function ProfileForm({ userId }: { userId: string }) {
+  const [status, setStatus] = useState<{ text: string; isError: boolean } | null>(null);
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitSuccessful },
+    reset,
+    formState: { errors, isSubmitting },
   } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
-    defaultValues: profileDefaults,
+    defaultValues: { name: "", major: "", location: "", roles: "" },
   });
 
+  useEffect(() => {
+    fetchProfile(userId)
+      .then((profile) => {
+        if (!profile) return;
+        reset({
+          name: profile.full_name ?? "",
+          major: profile.major ?? "",
+          location: profile.preferred_location ?? "",
+          roles: profile.target_roles ?? "",
+        });
+      })
+      .catch((error: Error) => setStatus({ text: error.message, isError: true }));
+  }, [userId, reset]);
+
+  async function onSubmit(values: ProfileFormValues) {
+    setStatus(null);
+    try {
+      await saveProfile(userId, {
+        full_name: values.name,
+        major: values.major,
+        preferred_location: values.location,
+        target_roles: values.roles,
+      });
+      setStatus({ text: "Profile saved.", isError: false });
+    } catch (error) {
+      setStatus({ text: (error as Error).message, isError: true });
+    }
+  }
+
   return (
-    <form
-      className="grid gap-4"
-      onSubmit={handleSubmit(() => {
-        // Frontend-only prototype: values stay in the browser.
-      })}
-    >
+    <form className="grid gap-4" onSubmit={handleSubmit(onSubmit)}>
       <Field label="Name" error={errors.name?.message}>
         <Input {...register("name")} />
       </Field>
@@ -41,18 +69,20 @@ export function ProfileForm() {
         <Input {...register("major")} />
       </Field>
       <Field label="Preferred location" error={errors.location?.message}>
-        <Input {...register("location")} />
+        <Input placeholder="Raleigh, NC or Remote" {...register("location")} />
       </Field>
       <Field label="Target roles" error={errors.roles?.message}>
-        <Input {...register("roles")} />
+        <Input placeholder="Software engineering, frontend, data" {...register("roles")} />
       </Field>
       <div className="flex items-center gap-3">
-        <Button type="submit">
+        <Button disabled={isSubmitting} type="submit">
           <Save className="h-4 w-4" aria-hidden="true" />
-          Save profile
+          {isSubmitting ? "Saving…" : "Save profile"}
         </Button>
-        {isSubmitSuccessful ? (
-          <span className="text-sm text-muted-foreground">Saved in this browser session.</span>
+        {status ? (
+          <span className={`text-sm ${status.isError ? "text-red-600" : "text-muted-foreground"}`}>
+            {status.text}
+          </span>
         ) : null}
       </div>
     </form>

@@ -233,3 +233,6 @@ __marimo__/
 .env
 node_modules/
 .DS_Store
+
+# Next.js local env files (hold Supabase keys)
+.env*.local
