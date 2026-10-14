@@ -1,55 +1,180 @@
 # CS Career Hub
 
-Centralized job and internship hub for CS students: real postings collected from company job boards, search and filters, and a personal application tracker.
+**A job and internship hub built for computer science students.**
+
+CS Career Hub collects CS job and internship postings from public company job boards into one place, so students can search them, filter them, and track every application from "saved" to "offer."
+
+---
+
+## Features
+
+- Sign up and sign in with email and password
+- Browse real, open CS roles collected from company job boards
+- Search by title, company or location, and filter by remote, hybrid or in person
+- Read the full job description and jump to the company's posting to apply
+- Track applications: Saved, Applied, Interviewing, Offer, Rejected
+- Save a simple profile (name, major, preferred location, target roles)
+
+**Planned**
+
+- Match scores that rank jobs by a student's skills and preferences
+- Instant email alerts for up to 10 priority companies, plus daily or weekly digests
+- Skill trends, personal skill gaps and links to learning resources
+- More job sources and an automatic refresh every few hours
+
+> The Skills tab currently shows sample data. Resume upload is a preview only; files are never sent anywhere.
+
+---
+
+## How it works
+
+```txt
+Company job boards ──► Python pipeline ──► Supabase database ◄──► Website
+   (Greenhouse)        collects & cleans    (PostgreSQL + login)    (Next.js)
+```
+
+- A **Python pipeline** downloads postings from public Greenhouse job boards, keeps U.S. early-career CS roles, removes duplicates, and marks postings that disappear as closed.
+- A **Supabase** database stores the jobs, student accounts and application trackers. Its security rules make sure each student can only see their own data.
+- A **Next.js website** lets students browse jobs and manage their tracker.
+
+We only use public job-board feeds that are meant to be read. We do not scrape sites whose terms of service forbid it.
+
+### Tech stack
+
+| Part | Technology |
+| :-- | :-- |
+| Website | Next.js 15, React 19, TypeScript, Tailwind CSS |
+| Database and login | Supabase (PostgreSQL, Auth, row-level security) |
+| Job pipeline | Python 3 (`requests`, `supabase`, `python-dotenv`) |
+| Job data | Greenhouse public job board API |
+
+---
+
+## Getting started
+
+These steps run the project on **macOS** and **Windows**.
+
+### Requirements
+
+| Tool | Version | Download |
+| :-- | :-- | :-- |
+| Git | any recent version | [git-scm.com](https://git-scm.com) |
+| Python | 3.11 or newer | [python.org](https://www.python.org) (Windows: check **"Add Python to PATH"** during install) |
+| Node.js | 20 LTS or newer | [nodejs.org](https://nodejs.org) |
+| Supabase account | default | [supabase.com](https://supabase.com) |
+
+Use **Terminal** on macOS and **PowerShell** on Windows.
+
+### 1. Get the code
+
+```bash
+git clone https://github.com/sajeeths1/cs-career-hub.git
+cd cs-career-hub
+```
+
+### 2. Set up the database
+
+1. Create a project on [supabase.com](https://supabase.com).
+2. Open **SQL Editor** and run these files **one at a time, in order** (New query → paste the file → Run):
+   1. `supabase/migrations/000_basic_schema.sql`
+   2. `supabase/migrations/001_add_pipeline_columns.sql`
+   3. `supabase/migrations/002_mvp_frontend_fields.sql`
+3. Optional, for local testing: under **Authentication → Sign In / Providers → Email**, turn off **Confirm email** so new accounts work without an email link.
+
+### 3. Get your keys
+
+From your Supabase project:
+
+- **Project URL:** click **Connect** at the top of the project page.
+- **Publishable (anon) key** and **secret (service_role) key:** **Settings → API Keys**.
+
+> The **secret** key bypasses all security rules. Use it only in the backend file below, never in the website, and never commit it.
+
+### 4. Collect jobs
+
+Create `backend/worker/.env`:
+
+```txt
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-secret-key
+```
+
+Then run the pipeline.
+
+**macOS**
+
+```bash
+cd backend/worker
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python pipeline.py
+```
+
+**Windows (PowerShell)**
+
+```powershell
+cd backend\worker
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python pipeline.py
+```
+
+You'll see a line for each company and a summary of how many jobs were saved. A few companies being "skipped" is normal; it means they no longer use Greenhouse.
+
+### 5. Start the website
+
+In a **new** terminal window, create `frontend/.env.local`:
+
+```txt
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-publishable-key
+```
+
+(You can copy `frontend/.env.local.example` as a starting point.) Then:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open **http://localhost:3000**, create an account, and start browsing jobs.
+
+### Next time
+
+You only need the setup once. After that:
+
+| Task | macOS | Windows |
+| :-- | :-- | :-- |
+| Refresh jobs | `source .venv/bin/activate` then `python pipeline.py` | `.venv\Scripts\Activate.ps1` then `python pipeline.py` |
+| Start the website | `npm run dev` | `npm run dev` |
+
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+| :-- | :-- |
+| Windows: `source` is not recognized | Use `.venv\Scripts\Activate.ps1` instead. |
+| Windows: "running scripts is disabled" | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`, then activate again. |
+| `python` / `python3` not found | Use `python3` on macOS and `python` on Windows. Reinstall Python if neither works. |
+| `npm` not found | Install Node.js LTS, then reopen the terminal. |
+| `KeyError: 'SUPABASE_URL'` | `backend/worker/.env` is missing or misnamed (check it isn't `.env.txt`). |
+| `PGRST125: Invalid path` | `SUPABASE_URL` must end in `.supabase.co`, with nothing after it. |
+| Website says "Connect the website to Supabase" | `frontend/.env.local` is missing. Create it and restart `npm run dev`. |
+| Sign-up asks you to check your email | Email confirmation is on. Click the link in the email, or turn the setting off (step 2). |
+| The job list is empty | Run the pipeline (step 4), then refresh the website. |
+
+---
 
 ## Project structure
 
 ```txt
 cs-career-hub/
-  frontend/              Next.js + React + TypeScript website (talks to Supabase)
-  backend/worker/        Python pipeline that collects jobs into Supabase
-  supabase/migrations/   SQL files that build the database (run in order)
-  docs/                  Database diagram (database.dbml)
+├── backend/worker/        Python job pipeline
+├── frontend/              Next.js website
+├── supabase/migrations/   SQL files that build the database
+└── docs/                  Technical documentation
 ```
-
-## How it fits together
-
-```txt
-Greenhouse job boards -> backend/worker/pipeline.py -> Supabase <- frontend (Next.js)
-```
-
-The pipeline and the website never talk to each other directly. They both read and write the same Supabase tables.
-
-## MVP setup (do these in order)
-
-### 1. Database (once)
-In Supabase -> SQL Editor, run each file as its own query, in order:
-1. `supabase/migrations/000_basic_schema.sql`
-2. `supabase/migrations/001_add_pipeline_columns.sql`
-3. `supabase/migrations/002_mvp_frontend_fields.sql`
-
-For a smooth demo, turn off email confirmation: Authentication -> Sign In / Providers -> Email -> uncheck "Confirm email".
-
-### 2. Collect jobs
-```bash
-cd backend/worker
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python pipeline.py
-```
-Needs `backend/worker/.env` with `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
-
-### 3. Run the website
-```bash
-cd frontend
-npm install
-cp .env.local.example .env.local   # then paste your Project URL + anon key
-npm run dev
-```
-Open `http://localhost:3000`, create an account, and browse jobs.
-
-## Keys
-- `backend/worker/.env`: service_role key (pipeline only, never in the frontend).
-- `frontend/.env.local`: anon key (safe in the browser; row-level security limits it).
-- Both files are in `.gitignore`. Never commit them.
