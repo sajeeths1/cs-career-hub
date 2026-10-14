@@ -126,8 +126,8 @@ Compared with the original basic pipeline (see the appendix), `pipeline.py`:
 5. Skips a company with a warning if its download fails, instead of stopping the whole run.
 6. Still removes duplicates with the fingerprint and closes jobs not seen for 2 days.
 
-Full details: [PIPELINE_AND_SQL.md](PIPELINE_AND_SQL.md).
-
+   Full details: [pipeline_sql_implementation.md](pipeline_sql_implementation.md).
+   
 ### Connecting the website to Supabase
 
 #### The connection (`lib/supabase.ts`)
