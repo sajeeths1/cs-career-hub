@@ -1,40 +1,54 @@
-Table profiles {
-  id uuid [pk, note: 'Same ID as the Supabase Auth user']
-  name varchar
-  preferred_role varchar
-  location varchar
+// Matches supabase/migrations 000 + 001 + 002 exactly.
+// Paste into dbdiagram.io to redraw the diagram.
+
+Enum application_status {
+  saved
+  not_applied
+  applied
+  interviewing
+  offer
+  rejected
 }
 
 Table companies {
-  id uuid [pk]
-  name varchar [not null]
-  website varchar
+  id bigint [pk, increment]
+  name text [not null, unique]
+  website text
+  ats_type text [note: 'e.g. greenhouse']
+  ats_slug text [note: 'company name on that job board, e.g. stripe']
 }
 
 Table jobs {
-  id uuid [pk]
-  company_id uuid [not null]
-  title varchar [not null]
+  id bigint [pk, increment]
+  company_id bigint [not null]
+  title text [not null]
+  location text
+  url text [not null]
+  posted_at date
   description text
-  location varchar
-  work_mode varchar [note: 'remote, hybrid, or in_person']
-  application_url varchar [not null]
-  source varchar [not null]
-  source_job_id varchar [not null]
-  posted_at timestamp
-  is_active boolean [default: true]
+  work_mode text [not null, default: 'unknown', note: 'remote, hybrid, in_person, unknown']
+  source text [not null, default: 'manual']
+  dedupe_hash text [not null, unique, note: 'fingerprint of company + title + location']
+  is_open boolean [not null, default: true]
+  last_seen_at timestamptz [not null]
+}
 
-  indexes {
-    (source, source_job_id) [unique]
-  }
+Table profiles {
+  id uuid [pk, note: 'Same ID as the Supabase Auth user']
+  full_name text
+  school text
+  grad_year int
+  major text
+  preferred_location text
+  target_roles text
 }
 
 Table applications {
-  id uuid [pk]
+  id bigint [pk, increment]
   user_id uuid [not null]
-  job_id uuid [not null]
-  status varchar [not null, default: 'not_applied']
-  updated_at timestamp
+  job_id bigint [not null]
+  status application_status [not null, default: 'not_applied']
+  updated_at timestamptz [not null]
 
   indexes {
     (user_id, job_id) [unique]

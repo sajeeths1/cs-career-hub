@@ -1,4 +1,4 @@
-"""Basic pipeline test: ONE company, Greenhouse -> Supabase `jobs` table.
+"""OLD Basic pipeline test: ONE company, Greenhouse -> Supabase `jobs` table.
 
 Run:  python basic_pipeline.py
 Run it a second time: it should say 0 new jobs, which proves repeats are skipped.

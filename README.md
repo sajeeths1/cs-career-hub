@@ -6,26 +6,6 @@ CS Career Hub collects CS job and internship postings from public company job bo
 
 ---
 
-## Features
-
-- Sign up and sign in with email and password
-- Browse real, open CS roles collected from company job boards
-- Search by title, company or location, and filter by remote, hybrid or in person
-- Read the full job description and jump to the company's posting to apply
-- Track applications: Saved, Applied, Interviewing, Offer, Rejected
-- Save a simple profile (name, major, preferred location, target roles)
-
-**Planned**
-
-- Match scores that rank jobs by a student's skills and preferences
-- Instant email alerts for up to 10 priority companies, plus daily or weekly digests
-- Skill trends, personal skill gaps and links to learning resources
-- More job sources and an automatic refresh every few hours
-
-> The Skills tab currently shows sample data. Resume upload is a preview only; files are never sent anywhere.
-
----
-
 ## How it works
 
 ```txt

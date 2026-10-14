@@ -12,14 +12,24 @@ const TabsContext = React.createContext<TabsContextValue | null>(null);
 
 export function Tabs({
   defaultValue,
+  value: controlledValue,
+  onValueChange,
   children,
   className,
 }: {
   defaultValue: string;
+  /** Optional: pass value + onValueChange to switch tabs from code. */
+  value?: string;
+  onValueChange?: (value: string) => void;
   children: React.ReactNode;
   className?: string;
 }) {
-  const [value, setValue] = React.useState(defaultValue);
+  const [innerValue, setInnerValue] = React.useState(defaultValue);
+  const value = controlledValue ?? innerValue;
+  const setValue = (next: string) => {
+    setInnerValue(next);
+    onValueChange?.(next);
+  };
 
   return (
     <TabsContext.Provider value={{ value, setValue }}>
