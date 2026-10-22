@@ -274,7 +274,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
           </section>
 
           <Tabs className="space-y-5" defaultValue="dashboard" value={tab} onValueChange={setTab}>
-            <TabsList className="max-w-full overflow-x-auto">
+            <TabsList className="max-w-full overflow-x-auto lg:hidden">
               <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
               <TabsTrigger value="jobs">Jobs</TabsTrigger>
               <TabsTrigger value="applications">Applications</TabsTrigger>

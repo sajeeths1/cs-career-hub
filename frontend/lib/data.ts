@@ -2,7 +2,7 @@
 // so the page components stay simple and the backend team can review it in one place.
 import { supabase } from "@/lib/supabase";
 import type { Application, ApplicationStatus, Job, Profile } from "@/lib/types";
-import type { LearningGoal, Skill } from "@/lib/skill-development";
+import type { LearningGoal, LearningResource, Skill, SkillOverview } from "@/lib/skill-development";
 
 function db() {
   if (!supabase) throw new Error("Supabase is not configured. Check frontend/.env.local.");
@@ -72,31 +72,22 @@ export async function saveProfile(
   if (error) throw error;
 }
 
-export async function fetchSkillDevelopment(userId: string) {
+export async function fetchSkillDevelopment(userId: string, titleFilter = "") {
   const results = await Promise.all([
     db().from("skills").select("id, name").order("name"),
     db().from("user_skills").select("skill_id").eq("user_id", userId),
-    db().from("learning_goals").select("skill_id, status").eq("user_id", userId),
+    db().from("learning_goals").select("skill_id, status").eq("user_id", userId).order("skill_id"),
+    db().from("learning_resources").select("skill_id, title, url, suggested_goal").order("id"),
+    db().rpc("skill_development_overview", { p_title_filter: titleFilter }),
   ]);
   for (const result of results) if (result.error) throw result.error;
   return {
     skills: (results[0].data ?? []) as unknown as Skill[],
     knownIds: ((results[1].data ?? []) as unknown as { skill_id: number }[]).map((row) => row.skill_id),
     goals: (results[2].data ?? []) as unknown as LearningGoal[],
+    resources: (results[3].data ?? []) as unknown as LearningResource[],
+    overview: results[4].data as unknown as SkillOverview,
   };
-}
-
-export async function fetchJobSkills(jobIds: number[]) {
-  if (!jobIds.length) return [];
-  // Batch below the API row limit; each posting can have many skills.
-  const rows: { job_id: number; skill_id: number }[] = [];
-  for (let offset = 0; ; offset += 1000) {
-    const { data, error } = await db().from("job_skills").select("job_id, skill_id")
-      .in("job_id", jobIds).order("job_id").order("skill_id").range(offset, offset + 999);
-    if (error) throw error;
-    rows.push(...(data ?? []));
-    if (!data || data.length < 1000) return rows;
-  }
 }
 
 export async function setKnownSkill(userId: string, skillId: number, known: boolean) {

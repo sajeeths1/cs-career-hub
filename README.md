@@ -62,6 +62,7 @@ cd cs-career-hub
    3. `supabase/migrations/002_mvp_frontend_fields.sql`
    4. `supabase/migrations/003_add_skills_and_notifications.sql`
    5. `supabase/migrations/004_skill_development.sql`
+   6. `supabase/migrations/005_skill_development_catalog.sql`
 3. Optional, for local testing: under **Authentication → Sign In / Providers → Email**, turn off **Confirm email** so new accounts work without an email link.
 
 ### 3. Get your keys
@@ -124,6 +125,15 @@ npm run dev
 ```
 
 Open **http://localhost:3000**, create an account, and start browsing jobs.
+
+For skill demand and learning recommendations, activate the backend virtual environment
+and run `python skills.py --limit 50` from `backend/worker`. Repeat until it reports
+zero attempted jobs, or use `python pipeline.py --with-skills --skill-limit 50` on
+future collection runs. This saves keyword-based skill mentions once per posting;
+LLM extraction and match scores remain planned. See [skill development](docs/skill_development.md).
+
+For a shared Supabase project, the team's Data owner applies new migrations.
+Do not rerun migrations that have already been applied.
 
 ### Next time
 

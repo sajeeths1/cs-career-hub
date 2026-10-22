@@ -52,3 +52,18 @@ export const WORK_MODE_LABELS: Record<WorkMode, string> = {
   in_person: "In person",
   unknown: "Not listed",
 };
+
+// Skill-development tables and the read-only reporting RPC.
+export type Skill = { id: number; name: string };
+export type LearningGoal = { skill_id: number; status: "planned" | "in_progress" | "completed" };
+export type LearningResource = {
+  skill_id: number; title: string; url: string; suggested_goal: string;
+};
+export type SkillDemand = {
+  skill_id: number; count: number; recent_count: number; previous_count: number;
+  examples: { id: number; title: string; url: string; company_name: string }[];
+};
+export type SkillOverview = {
+  total_open_jobs: number; matching_jobs: number; analyzed_jobs: number; skills: SkillDemand[];
+};
+export type RankedSkill = SkillDemand & { skill: Skill; known: boolean };

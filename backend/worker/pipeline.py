@@ -11,6 +11,7 @@ What it does, for every Greenhouse company in the `companies` table:
 
 Needs: .env with SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, and migrations 000-002 run.
 """
+import argparse
 import hashlib
 import html
 import os
@@ -226,6 +227,10 @@ def close_old_jobs(supabase, company_id: int, now: datetime) -> int:
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--with-skills", action="store_true", help="Extract stored skill mentions after collection (requires migration 005)")
+    parser.add_argument("--skill-limit", type=int, default=50, choices=range(1, 501), metavar="1..500")
+    args = parser.parse_args()
     supabase = get_client()
     now = datetime.now(timezone.utc)
     seed_companies(supabase)
@@ -260,6 +265,14 @@ def main():
 
     print(f"\nDone. {totals['kept']} jobs kept, {totals['new']} new, "
           f"{totals['closed']} closed, {totals['failed']} companies skipped.")
+
+    if args.with_skills:
+        import logging
+        from skills import run_extraction
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+        result = run_extraction(supabase, args.skill_limit)
+        if result["failed"]:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
