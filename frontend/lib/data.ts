@@ -2,6 +2,7 @@
 // so the page components stay simple and the backend team can review it in one place.
 import { supabase } from "@/lib/supabase";
 import type { Application, ApplicationStatus, Job, Profile } from "@/lib/types";
+import type { LearningGoal, LearningResource, Skill, SkillOverview } from "@/lib/skill-development";
 
 function db() {
   if (!supabase) throw new Error("Supabase is not configured. Check frontend/.env.local.");
@@ -68,5 +69,39 @@ export async function saveProfile(
   values: Omit<Profile, "id">,
 ): Promise<void> {
   const { error } = await db().from("profiles").update(values).eq("id", userId);
+  if (error) throw error;
+}
+
+export async function fetchSkillDevelopment(userId: string, titleFilter = "") {
+  const results = await Promise.all([
+    db().from("skills").select("id, name").order("name"),
+    db().from("user_skills").select("skill_id").eq("user_id", userId),
+    db().from("learning_goals").select("skill_id, status").eq("user_id", userId).order("skill_id"),
+    db().from("learning_resources").select("skill_id, title, url, suggested_goal").order("id"),
+    db().rpc("skill_development_overview", { p_title_filter: titleFilter }),
+  ]);
+  for (const result of results) if (result.error) throw result.error;
+  return {
+    skills: (results[0].data ?? []) as unknown as Skill[],
+    knownIds: ((results[1].data ?? []) as unknown as { skill_id: number }[]).map((row) => row.skill_id),
+    goals: (results[2].data ?? []) as unknown as LearningGoal[],
+    resources: (results[3].data ?? []) as unknown as LearningResource[],
+    overview: results[4].data as unknown as SkillOverview,
+  };
+}
+
+export async function setKnownSkill(userId: string, skillId: number, known: boolean) {
+  const query = known
+    ? db().from("user_skills").upsert({ user_id: userId, skill_id: skillId }, { onConflict: "user_id,skill_id", ignoreDuplicates: true })
+    : db().from("user_skills").delete().eq("user_id", userId).eq("skill_id", skillId);
+  const { error } = await query;
+  if (error) throw error;
+}
+
+export async function saveLearningGoal(userId: string, skillId: number, status: LearningGoal["status"] | null) {
+  const query = status === null
+    ? db().from("learning_goals").delete().eq("user_id", userId).eq("skill_id", skillId)
+    : db().from("learning_goals").upsert({ user_id: userId, skill_id: skillId, status });
+  const { error } = await query;
   if (error) throw error;
 }
