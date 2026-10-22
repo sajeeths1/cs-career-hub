@@ -1,10 +1,16 @@
 name: Job pipeline
 
-on:
-  schedule:
-    - cron: "0 */6 * * *"   # every 6 hours 
-  workflow_dispatch:         # adds a "Run workflow" button for testing
-
+# on:
+#   schedule:
+#     - cron: "0 */6 * * *"   # every 6 hours 
+#   workflow_dispatch:         # adds a "Run workflow" button for testing
+   on:
+     schedule:
+       - cron: "0 */6 * * *"
+     workflow_dispatch:
+     push:
+       branches: [ghkim-action-schedule-source]   # temporary, for testing
+       
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
