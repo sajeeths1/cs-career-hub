@@ -15,6 +15,7 @@ import { AuthScreen } from "@/components/auth-screen";
 import { ProfileForm } from "@/components/profile-form";
 import { SkillDevelopment } from "@/components/skill-development";
 import { ResumeUpload } from "@/components/resume-upload";
+import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -96,6 +97,9 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState("dashboard");
+  const [resumeResult, setResumeResult] = useState<ParsedResume | null>(null);
+  const [resumeDraft, setResumeDraft] = useState<ResumeDraft | null>(null);
+  const fillProfileFromResume = (draft: ResumeDraft) => { setResumeDraft(draft); setTab("profile"); };
   const [search, setSearch] = useState("");
   const [workMode, setWorkMode] = useState<WorkModeFilter>("all");
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
@@ -437,7 +441,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                     </Button>
                   </CardContent>
                 </Card>
-                <ResumeUpload compact />
+                <ResumeUpload compact userId={userId} result={resumeResult} onResult={setResumeResult} onProfileDraft={fillProfileFromResume} />
               </div>
             </TabsContent>
 
@@ -564,14 +568,15 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                   <CardDescription>Saved to your account in Supabase.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ProfileForm userId={userId} onSaved={(saved) => {
+                  <ProfileForm userId={userId} resumeDraft={resumeDraft} onSaved={(saved) => {
+                    setResumeDraft(null);
                     profileRequest.current++;
                     setProfile(saved); setProfileLoading(false); setProfileError(null);
                     resetJobSelection();
                   }} />
                 </CardContent>
               </Card>
-              <ResumeUpload compact />
+              <ResumeUpload compact userId={userId} result={resumeResult} onResult={setResumeResult} onProfileDraft={fillProfileFromResume} />
             </TabsContent>
           </Tabs>
         </div>

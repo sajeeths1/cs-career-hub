@@ -10,10 +10,13 @@ import { Input } from "@/components/ui/input";
 import { fetchProfile, saveProfile } from "@/lib/data";
 import { parseTargetRoles } from "@/lib/job-personalization";
 import type { Profile } from "@/lib/types";
+import type { ResumeDraft } from "@/lib/resume";
 
 const profileSchema = z.object({
   name: z.string().trim().min(2, "Enter your name"),
   major: z.string().trim().min(2, "Enter your major"),
+  school: z.string().trim().max(200),
+  gradYear: z.string().trim().refine(value => !value || /^(19|20|21)\d{2}$/.test(value), "Enter a four-digit graduation year"),
   location: z.string().trim().min(2, "Enter a preferred location"),
   roles: z.string().trim().min(2, "Enter at least one target role").max(500, "Keep target roles under 500 characters")
     .refine((value) => parseTargetRoles(value).length > 0, "Enter a role using words, such as frontend developer")
@@ -23,17 +26,18 @@ const profileSchema = z.object({
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
 /** Loads and saves the signed-in student's row in the `profiles` table. */
-export function ProfileForm({ userId, onSaved }: { userId: string; onSaved?: (profile: Profile) => void }) {
+export function ProfileForm({ userId, onSaved, resumeDraft }: { userId: string; onSaved?: (profile: Profile) => void; resumeDraft?: ResumeDraft | null }) {
   const [status, setStatus] = useState<{ text: string; isError: boolean } | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const {
     register,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
-    defaultValues: { name: "", major: "", location: "", roles: "" },
+    defaultValues: { name: "", major: "", school: "", gradYear: "", location: "", roles: "" },
   });
 
   useEffect(() => {
@@ -45,6 +49,8 @@ export function ProfileForm({ userId, onSaved }: { userId: string; onSaved?: (pr
         reset({
           name: profile.full_name ?? "",
           major: profile.major ?? "",
+          school: profile.school ?? "",
+          gradYear: profile.grad_year?.toString() ?? "",
           location: profile.preferred_location ?? "",
           roles: profile.target_roles ?? "",
         });
@@ -54,11 +60,19 @@ export function ProfileForm({ userId, onSaved }: { userId: string; onSaved?: (pr
     return () => { active = false; };
   }, [userId, reset]);
 
+  useEffect(() => {
+    if (!resumeDraft || profileLoading) return;
+    if (resumeDraft.full_name) setValue("name", resumeDraft.full_name, { shouldDirty: true });
+    if (resumeDraft.major) setValue("major", resumeDraft.major, { shouldDirty: true });
+    if (resumeDraft.school) setValue("school", resumeDraft.school, { shouldDirty: true });
+  }, [resumeDraft, profileLoading, setValue]);
+
   async function onSubmit(values: ProfileFormValues) {
     setStatus(null);
     try {
       const profile = {
         full_name: values.name.trim(), major: values.major.trim(),
+        school: values.school || null, grad_year: values.gradYear ? Number(values.gradYear) : null,
         preferred_location: values.location.trim(),
         target_roles: parseTargetRoles(values.roles).join(", "),
       };
@@ -73,12 +87,19 @@ export function ProfileForm({ userId, onSaved }: { userId: string; onSaved?: (pr
   return (
     <form className="grid gap-4" onSubmit={handleSubmit(onSubmit)}>
       {profileLoading && <p role="status" className="text-sm text-muted-foreground">Loading profile…</p>}
+      {resumeDraft && <p role="status" className="text-sm text-muted-foreground">Resume suggestions filled below. Check them, complete your preferences, then save your profile.</p>}
       <fieldset disabled={profileLoading || isSubmitting} className="grid min-w-0 gap-4">
       <Field label="Name" error={errors.name?.message}>
         <Input {...register("name")} />
       </Field>
       <Field label="Major" error={errors.major?.message}>
         <Input {...register("major")} />
+      </Field>
+      <Field label="School (optional)" error={errors.school?.message}>
+        <Input {...register("school")} />
+      </Field>
+      <Field label="Graduation year (optional)" error={errors.gradYear?.message}>
+        <Input inputMode="numeric" placeholder="2027" {...register("gradYear")} />
       </Field>
       <Field label="Preferred location" error={errors.location?.message}>
         <Input placeholder="Raleigh, NC or Remote" {...register("location")} />

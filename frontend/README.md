@@ -21,7 +21,11 @@ npm run lint
 npm run build
 ```
 
-The resume upload is a frontend-only preview. Files are not sent to a server.
+The Resume center uploads documents to an authenticated Next.js endpoint for
+local Python/Tesseract extraction. Install the separate OCR dependencies before
+using it; see [resume setup and deployment](../docs/resume_parsing.md). Users
+review details and explicitly approve profile fields and skill selections.
+Files and full extracted text are not persisted. No new migration is required.
 
 The Skills tab needs migrations 000–005 and a backfill with the Python skills
 worker. It reads saved tags, demand reports and learning resources through

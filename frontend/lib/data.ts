@@ -81,7 +81,7 @@ export async function removeApplication(applicationId: number): Promise<void> {
 export async function fetchProfile(userId: string): Promise<Profile | null> {
   const { data, error } = await db()
     .from("profiles")
-    .select("id, full_name, major, preferred_location, target_roles")
+    .select("id, full_name, major, preferred_location, target_roles, school, grad_year")
     .eq("id", userId)
     .maybeSingle();
   if (error) throw error;
@@ -120,6 +120,28 @@ export async function setKnownSkill(userId: string, skillId: number, known: bool
     : db().from("user_skills").delete().eq("user_id", userId).eq("skill_id", skillId);
   const { error } = await query;
   if (error) throw error;
+}
+
+/** One atomic insert of explicitly approved resume skills; retain existing selections. */
+export async function addResumeSkills(userId: string, skillIds: number[]) {
+  if (!skillIds.length) return;
+  const { error } = await db().from("user_skills").upsert(
+    [...new Set(skillIds)].map(skill_id => ({ user_id: userId, skill_id })),
+    { onConflict: "user_id,skill_id", ignoreDuplicates: true },
+  );
+  if (error) throw error;
+}
+
+export async function parseResume(file: File, signal: AbortSignal) {
+  const { data, error } = await db().auth.getSession();
+  if (error || !data.session) throw new Error("Sign in before parsing a resume.");
+  const response = await fetch("/api/resume", {
+    method: "POST", body: file, signal,
+    headers: { Authorization: `Bearer ${data.session.access_token}`, "Content-Type": "application/octet-stream" },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result) throw new Error(result?.error ?? "Could not parse your resume. Please retry.");
+  return result as import("./resume").ParsedResume;
 }
 
 export async function saveLearningGoal(userId: string, skillId: number, status: LearningGoal["status"] | null) {

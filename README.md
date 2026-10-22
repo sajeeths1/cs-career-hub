@@ -18,6 +18,7 @@ Company job boards ──► Python pipeline ──► Supabase database ◄─�
 - A **Next.js website** lets students browse jobs and manage their tracker.
 - The **For you jobs view** uses saved profile target roles to find relevant open titles. Switch to **All jobs** for general browsing. See [profile personalization](docs/profile_personalization.md) for matching behavior and limits.
 - The **Skills tab** compares postings with students' skills, suggests learning resources and goals, and saves their progress. See [skill development](docs/skill_development.md) for setup and matching details.
+- The **Resume center** extracts text and details from PDFs, DOCX and images, using OCR for scans. Students review suggestions before filling profile fields or adding skills. See [resume setup](docs/resume_parsing.md) for the Python/Tesseract requirements.
 
 We only use public job-board feeds that are meant to be read. We do not scrape sites whose terms of service forbid it.
 

@@ -29,7 +29,7 @@ browser          │ (anon key)           │
 
 **Key design rule:** the pipeline and the website never call each other. Each one only reads and writes the database. The slow work happens in the background, so pages load fast; a pipeline failure never takes the website down; and the frontend and backend teams can work independently as long as both follow the database schema.
 
-**We use Supabase's built-in API instead of writing our own server.** Supabase automatically provides an API for our tables. The website calls it through Supabase's JavaScript library, and the database's security rules decide what each student may read or change. This means there is no separate backend server for our team to write, host or keep running. Work that needs secret keys (such as the planned AI matching and email alerts) runs in the Python worker instead.
+**We use Supabase's built-in API for database operations.** The website calls it through Supabase's JavaScript library, and database security rules decide what each student may read or change. Job collection and planned scoring/email workers remain separate. Resume processing now uses an authenticated Next.js `/api/resume` endpoint that invokes a local Python/Tesseract subprocess. Install that runtime alongside Next.js; it requires no separate listening backend service. See [resume setup](resume_parsing.md).
 
 ---
 
@@ -266,14 +266,14 @@ Save ─► setApplicationStatus(userId, jobId, "saved")
 | :-- | :-- |
 | Match scores are not implemented | Planned: LLM extraction of required/optional skills and precomputed 70/15/15 scoring; keyword skill mentions are available now |
 | Skill demand needs a backfill | After migration 005, run `python skills.py --limit 50` until there is no pending work; counts use stored tags and show analysis coverage |
-| Resume upload is preview-only | Files never leave the browser |
+| Resume parsing requires an OCR runtime | Install `backend/resume` requirements and Tesseract alongside Next.js; students review fields/skills before saving. Files and raw text are not persisted. |
 | Website loads the newest 300 open jobs | Search and filters only cover those; add pagination later |
 | Pipeline runs manually | Next: run it automatically every few hours with GitHub Actions |
 | Only Greenhouse is supported | Add Lever, Ashby and community GitHub lists |
 | Title and location filter is keyword-based | Some jobs will be wrongly kept or dropped |
 | `work_mode` is guessed from text | Jobs that don't say "remote" or "hybrid" are marked in person |
-| `profiles.school` and `grad_year` are not in the form | Columns exist; add form fields when needed |
-| Website runs on localhost only | Deploy (for example, to Vercel) to share it |
+| Resume field detection is rule-based | School/graduation fields are now editable; OCR and suggestions require user review. Contact details and work history are review-only. |
+| Production hosting is not configured | Resume parsing needs a Node host with Python/Tesseract and backend source; default Node-only serverless hosting is insufficient. See resume deployment notes. |
 
 ---
 

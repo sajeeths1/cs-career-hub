@@ -35,6 +35,8 @@ export type Profile = {
   major: string | null;
   preferred_location: string | null;
   target_roles: string | null;
+  school?: string | null;
+  grad_year?: number | null;
 };
 
 /** Tracker columns, in order. not_applied is treated like "saved" in the UI. */
