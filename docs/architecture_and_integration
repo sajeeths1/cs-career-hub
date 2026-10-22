@@ -52,6 +52,17 @@ scheduled operation requires it on the default branch with repository secrets.
 Skill extraction is separately enabled and is not run by that workflow. See [the roadmap audit](roadmap_audit.md) and
 [Skills setup and contracts](skill_development.md).
 
+## Profile personalization update
+
+Saved target roles now personalize the Jobs **For you** view and dashboard
+suggestions. The browser uses the existing Supabase API to query open titles,
+normalizes common role wording and checks word matches. It can retrieve matches
+beyond the general feed's first 300 jobs, while displaying up to 300 matches.
+**All jobs** remains available. Saving a profile refreshes recommendations.
+There are no new schema changes or fit scores. Location preferences and the
+planned 70/15/15 scoring formula are separate future work. See
+[profile personalization](profile_personalization.md) for the contract and limits.
+
 ## Connected MVP foundation
 
 ### Purpose

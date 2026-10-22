@@ -9,6 +9,7 @@ secrets and deployment state are not inferred from source files.
 | Supabase Auth, profiles and RLS | Implemented in code | Migrations 000–002, auth screen, profile form and shared public browser client. Hosted setup must be verified by the Data owner. |
 | Greenhouse collection, filtering, deduplication and stale closure | Implemented | `backend/worker/pipeline.py`; service-role writes, company failure isolation and database fingerprint uniqueness. |
 | Jobs, search/filtering and application tracker | Implemented | `frontend/app/page.tsx`, `frontend/lib/data.ts`; private tracker rows. |
+| Profile target-role personalization | Implemented | For you and dashboard suggestions use saved roles to query open titles. All jobs remains available. This is title matching, not precomputed fit scoring. General server-side search/pagination remains future work. |
 | Automatic collection | Workflow implemented; activation unverified | `.github/workflows/pipeline.yml` schedules collection every six hours and supports manual runs. Scheduled execution requires this file on the default branch and configured repository secrets. It runs collection only; skill extraction remains a separate or explicitly enabled step. |
 | Shared skill catalog and student skills | Implemented | Migrations 003–005; normalized aliases and persisted student selections. |
 | Once-per-posting extraction | Keyword baseline implemented | `skills.py`, bounded batches, persisted version/hash, atomic writes and invalidation. No paid API calls. |

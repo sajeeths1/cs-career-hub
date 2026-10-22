@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
   Bookmark,
@@ -28,11 +28,15 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   fetchApplications,
+  fetchJob,
+  fetchJobsForTargetRoles,
   fetchOpenJobs,
+  fetchProfile,
   removeApplication,
   setApplicationStatus,
 } from "@/lib/data";
 import { navItems } from "@/lib/mock-data";
+import { parseTargetRoles } from "@/lib/job-personalization";
 import { supabase } from "@/lib/supabase";
 import {
   TRACKER_COLUMNS,
@@ -40,6 +44,7 @@ import {
   type Application,
   type ApplicationStatus,
   type Job,
+  type Profile,
   type WorkMode,
 } from "@/lib/types";
 
@@ -77,6 +82,7 @@ export default function Home() {
 // ---------------------------------------------------------------------------
 
 type WorkModeFilter = "all" | WorkMode;
+type JobView = "for_you" | "all";
 const WORK_MODE_FILTERS: { value: WorkModeFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "remote", label: "Remote" },
@@ -93,6 +99,64 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [search, setSearch] = useState("");
   const [workMode, setWorkMode] = useState<WorkModeFilter>("all");
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+  const [jobView, setJobView] = useState<JobView>("for_you");
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const profileRequest = useRef(0);
+  const [recommendationRefresh, setRecommendationRefresh] = useState(0);
+  const [personalized, setPersonalized] = useState<{
+    key: string; jobs: Job[]; loading: boolean; error: string | null;
+  }>({ key: "", jobs: [], loading: false, error: null });
+  const [directJob, setDirectJob] = useState<Job | null>(null);
+  const [openingJob, setOpeningJob] = useState(false);
+  const [jobOpenError, setJobOpenError] = useState<string | null>(null);
+  const jobOpenRequest = useRef(0);
+  const rolesKey = profile?.target_roles ?? "";
+  const targetRoles = useMemo(() => parseTargetRoles(rolesKey), [rolesKey]);
+
+  const loadProfile = useCallback(async () => {
+    const request = ++profileRequest.current;
+    setProfileLoading(true);
+    setProfileError(null);
+    try {
+      const row = await fetchProfile(userId);
+      if (request === profileRequest.current) setProfile(row);
+    } catch (err) {
+      if (request === profileRequest.current) setProfileError((err as Error).message);
+    } finally {
+      if (request === profileRequest.current) setProfileLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    const requestState = profileRequest;
+    void loadProfile();
+    return () => { requestState.current++; };
+  }, [loadProfile]);
+
+  useEffect(() => {
+    if (profileLoading || profileError || !targetRoles.length) return;
+    const controller = new AbortController();
+    setPersonalized({ key: rolesKey, jobs: [], loading: true, error: null });
+    fetchJobsForTargetRoles(targetRoles, controller.signal)
+      .then((rows) => {
+        if (!controller.signal.aborted) setPersonalized({ key: rolesKey, jobs: rows, loading: false, error: null });
+      })
+      .catch((err: Error) => {
+        if (!controller.signal.aborted) setPersonalized({ key: rolesKey, jobs: [], loading: false, error: err.message });
+      });
+    return () => controller.abort();
+  }, [rolesKey, targetRoles, profileLoading, profileError, recommendationRefresh]);
+
+  const recommendedJobs = personalized.key === rolesKey && targetRoles.length && !profileError ? personalized.jobs : [];
+  const recommendationsLoading = profileLoading || (!profileError && !!targetRoles.length && (personalized.key !== rolesKey || personalized.loading));
+  const recommendationError = personalized.key === rolesKey ? personalized.error : null;
+  const viewJobs = jobView === "for_you" ? recommendedJobs : jobs;
+  const viewLoading = jobView === "for_you" ? recommendationsLoading : loading;
+  const dashboardPersonalized = !profileLoading && !profileError && targetRoles.length > 0;
+  const dashboardJobs = dashboardPersonalized ? recommendedJobs : jobs;
+  const dashboardLoading = loading || profileLoading || (dashboardPersonalized && recommendationsLoading);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -147,15 +211,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
   const filteredJobs = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return jobs.filter((job) => {
+    return viewJobs.filter((job) => {
       if (workMode !== "all" && job.work_mode !== workMode) return false;
       if (!term) return true;
       const haystack = `${job.title} ${job.companies?.name ?? ""} ${job.location ?? ""}`;
       return haystack.toLowerCase().includes(term);
     });
-  }, [jobs, search, workMode]);
+  }, [viewJobs, search, workMode]);
 
   const selectedJob =
+    (directJob?.id === selectedJobId ? directJob : null) ??
     filteredJobs.find((job) => job.id === selectedJobId) ?? filteredJobs[0] ?? null;
 
   const countByStatus = (status: ApplicationStatus) =>
@@ -168,9 +233,41 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     { label: "Interviewing", value: countByStatus("interviewing"), note: "Keep preparing" },
   ];
 
-  function openJob(jobId: number) {
+  function resetJobSelection() {
+    jobOpenRequest.current++;
+    setSelectedJobId(null);
+    setDirectJob(null);
+    setOpeningJob(false);
+    setJobOpenError(null);
+  }
+
+  function changeJobView(view: JobView) {
+    resetJobSelection();
+    setJobView(view);
+  }
+
+  async function openJob(jobId: number, view: JobView = "all") {
+    const request = ++jobOpenRequest.current;
+    setJobView(view);
+    setSearch("");
+    setWorkMode("all");
     setSelectedJobId(jobId);
+    setJobOpenError(null);
     setTab("jobs");
+    const known = [...jobs, ...recommendedJobs].find((job) => job.id === jobId);
+    setDirectJob(known ?? null);
+    if (known) { setOpeningJob(false); return; }
+    setOpeningJob(true);
+    try {
+      const job = await fetchJob(jobId);
+      if (request !== jobOpenRequest.current) return;
+      setDirectJob(job);
+      if (!job) setJobOpenError("This job is no longer available.");
+    } catch (err) {
+      if (request === jobOpenRequest.current) setJobOpenError((err as Error).message);
+    } finally {
+      if (request === jobOpenRequest.current) setOpeningJob(false);
+    }
   }
 
   return (
@@ -228,12 +325,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               placeholder="Search jobs, companies, or locations"
               value={search}
               onChange={(event) => {
+                resetJobSelection();
+                if (!targetRoles.length || profileError) setJobView("all");
                 setSearch(event.target.value);
                 setTab("jobs");
               }}
             />
           </div>
-          <Button aria-label="Refresh" size="icon" variant="outline" onClick={loadAll}>
+          <Button aria-label="Refresh" size="icon" variant="outline" onClick={() => {
+            void loadAll(); void loadProfile(); setRecommendationRefresh((n) => n + 1);
+          }}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
           <Button
@@ -286,25 +387,28 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             <TabsContent value="dashboard" className="grid gap-6 xl:grid-cols-[1fr_360px]">
               <Card>
                 <CardHeader className="flex flex-row items-start justify-between gap-4">
-                  <div>
-                    <CardTitle>Newest jobs</CardTitle>
-                    <CardDescription>The latest open CS roles from company job boards.</CardDescription>
+                  <div className="min-w-0">
+                    <CardTitle>{dashboardPersonalized ? "Jobs for you" : "Newest jobs"}</CardTitle>
+                    <CardDescription>{dashboardPersonalized
+                      ? `Based on your target roles: ${targetRoles.join(", ")}.`
+                      : "The latest open CS roles from company job boards. Add target roles in your profile to personalize this view."}</CardDescription>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => setTab("jobs")}>
-                    View all
+                  <Button className="shrink-0" size="sm" variant="outline" onClick={() => { changeJobView(dashboardPersonalized ? "for_you" : "all"); setTab("jobs"); }}>
+                    View more
                   </Button>
                 </CardHeader>
                 <CardContent className="grid gap-3">
-                  {loading ? <EmptyText text="Loading jobs…" /> : null}
-                  {!loading && jobs.length === 0 ? (
-                    <EmptyText text="No jobs yet. Run the pipeline (backend/worker/pipeline.py) to collect some." />
+                  {dashboardLoading ? <EmptyText text="Loading jobs…" /> : null}
+                  {!dashboardLoading && dashboardPersonalized && recommendationError && <p role="alert" className="text-sm text-red-600">Could not load personalized jobs. Open Jobs to retry or browse all jobs.</p>}
+                  {!dashboardLoading && !recommendationError && dashboardJobs.length === 0 ? (
+                    <EmptyText text={dashboardPersonalized ? "No open titles match your target roles yet. You can edit your profile or browse All jobs." : "No open jobs are available yet."} />
                   ) : null}
-                  {jobs.slice(0, 6).map((job) => (
+                  {!dashboardLoading && dashboardJobs.slice(0, 6).map((job) => (
                     <JobRow
                       job={job}
                       key={job.id}
                       status={statusByJob.get(job.id)}
-                      onOpen={() => openJob(job.id)}
+                      onOpen={() => void openJob(job.id, dashboardPersonalized ? "for_you" : "all")}
                       onSave={() => track(job.id, "saved")}
                     />
                   ))}
@@ -338,20 +442,26 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             </TabsContent>
 
             {/* ---------------- Jobs ---------------- */}
-            <TabsContent value="jobs" className="grid gap-6 xl:grid-cols-[420px_1fr]">
+            <TabsContent value="jobs" className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
               <Card>
                 <CardHeader>
-                  <CardTitle>All jobs</CardTitle>
+                  <CardTitle>{jobView === "for_you" ? "For you" : "All jobs"}</CardTitle>
                   <CardDescription>
-                    {loading ? "Loading…" : `${filteredJobs.length} of ${jobs.length} open jobs`}
+                    {viewLoading ? "Loading…" : `${filteredJobs.length} of ${viewJobs.length} loaded jobs · up to 300 newest results`}
                   </CardDescription>
+                  <div role="group" aria-label="Job view" className="flex flex-wrap gap-2 pt-2">
+                    <Button size="sm" aria-pressed={jobView === "for_you"} variant={jobView === "for_you" ? "default" : "outline"} onClick={() => changeJobView("for_you")}>For you</Button>
+                    <Button size="sm" aria-pressed={jobView === "all"} variant={jobView === "all" ? "default" : "outline"} onClick={() => changeJobView("all")}>All jobs</Button>
+                  </div>
+                  {jobView === "for_you" && targetRoles.length > 0 && <p className="break-words text-sm text-muted-foreground">Based on saved roles: {targetRoles.join(", ")}. Matches use job-title keywords from your saved roles.</p>}
                   <div className="flex flex-wrap gap-2 pt-2">
                     {WORK_MODE_FILTERS.map((filter) => (
                       <Button
                         key={filter.value}
                         size="sm"
                         variant={workMode === filter.value ? "default" : "outline"}
-                        onClick={() => setWorkMode(filter.value)}
+                        aria-pressed={workMode === filter.value}
+                        onClick={() => { resetJobSelection(); setWorkMode(filter.value); }}
                       >
                         {filter.label}
                       </Button>
@@ -359,24 +469,34 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                   </div>
                 </CardHeader>
                 <CardContent className="grid max-h-[70vh] gap-3 overflow-y-auto">
-                  {!loading && filteredJobs.length === 0 ? (
-                    <EmptyText text="No jobs match your search and filters." />
+                  {viewLoading && <p role="status" className="text-sm text-muted-foreground">Loading jobs…</p>}
+                  {jobView === "for_you" && !profileLoading && profileError && <div role="alert" className="grid gap-3 text-sm">
+                    <p>Could not load your target roles: {profileError}</p><Button variant="outline" onClick={() => void loadProfile()}>Retry profile</Button>
+                  </div>}
+                  {jobView === "for_you" && !viewLoading && !profileError && !targetRoles.length && <div className="grid gap-3 text-sm">
+                    <p>Add target roles in your profile to see jobs for you.</p><Button variant="outline" onClick={() => setTab("profile")}>Set target roles</Button>
+                  </div>}
+                  {jobView === "for_you" && !viewLoading && !profileError && recommendationError && <div role="alert" className="grid gap-3 text-sm">
+                    <p>Could not load personalized jobs: {recommendationError}</p><Button variant="outline" onClick={() => setRecommendationRefresh((n) => n + 1)}>Retry recommendations</Button>
+                  </div>}
+                  {!viewLoading && filteredJobs.length === 0 && (jobView === "all" || (!profileError && targetRoles.length > 0 && !recommendationError)) ? (
+                    <EmptyText text={jobView === "for_you" ? "No jobs match your target roles and current filters. Try All jobs or update your profile." : "No jobs match your search and filters."} />
                   ) : null}
-                  {filteredJobs.map((job) => (
+                  {!viewLoading && filteredJobs.map((job) => (
                     <JobRow
                       compact
                       job={job}
                       key={job.id}
                       selected={selectedJob?.id === job.id}
                       status={statusByJob.get(job.id)}
-                      onOpen={() => setSelectedJobId(job.id)}
+                      onOpen={() => { resetJobSelection(); setSelectedJobId(job.id); }}
                       onSave={() => track(job.id, "saved")}
                     />
                   ))}
                 </CardContent>
               </Card>
 
-              {selectedJob ? (
+              {openingJob || jobOpenError ? <Card><CardContent className="p-5"><p role={jobOpenError ? "alert" : "status"} className="text-sm">{jobOpenError ?? "Loading job details…"}</p></CardContent></Card> : selectedJob && !viewLoading ? (
                 <JobDetail
                   job={selectedJob}
                   status={statusByJob.get(selectedJob.id)}
@@ -444,7 +564,11 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                   <CardDescription>Saved to your account in Supabase.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ProfileForm userId={userId} />
+                  <ProfileForm userId={userId} onSaved={(saved) => {
+                    profileRequest.current++;
+                    setProfile(saved); setProfileLoading(false); setProfileError(null);
+                    resetJobSelection();
+                  }} />
                 </CardContent>
               </Card>
               <ResumeUpload compact />

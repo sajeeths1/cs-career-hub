@@ -3,6 +3,7 @@
 import { supabase } from "@/lib/supabase";
 import type { Application, ApplicationStatus, Job, Profile } from "@/lib/types";
 import type { LearningGoal, LearningResource, Skill, SkillOverview } from "@/lib/skill-development";
+import { collectRoleMatches, targetRolesQuery } from "@/lib/job-personalization";
 
 function db() {
   if (!supabase) throw new Error("Supabase is not configured. Check frontend/.env.local.");
@@ -22,6 +23,29 @@ export async function fetchOpenJobs(limit = 300): Promise<Job[]> {
     .limit(limit);
   if (error) throw error;
   return (data ?? []) as unknown as Job[];
+}
+
+/** Match saved role preferences against titles across the database, then return
+ * up to 300 newest matches. This does not depend on the general feed's limit. */
+export async function fetchJobsForTargetRoles(roles: readonly string[], signal?: AbortSignal): Promise<Job[]> {
+  const filter = targetRolesQuery(roles);
+  if (!filter) return [];
+  return collectRoleMatches(roles, async (offset, pageSize) => {
+    let query = db().from("jobs").select(JOB_COLUMNS).eq("is_open", true)
+      .or(filter).order("posted_at", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: false }).range(offset, offset + pageSize - 1);
+    if (signal) query = query.abortSignal(signal);
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []) as unknown as Job[];
+  });
+}
+
+/** Open a tracked job directly even when it is outside either feed or closed. */
+export async function fetchJob(jobId: number): Promise<Job | null> {
+  const { data, error } = await db().from("jobs").select(JOB_COLUMNS).eq("id", jobId).maybeSingle();
+  if (error) throw error;
+  return data as unknown as Job | null;
 }
 
 /** The signed-in student's tracked jobs. RLS only returns their own rows. */
