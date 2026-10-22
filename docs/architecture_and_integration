@@ -45,8 +45,11 @@ The website does not call the worker. No service-role key or LLM runs in the bro
 
 This baseline does **not** complete Phase 3: the LLM provider, required versus
 optional qualifications, precomputed `job_matches` and the 70/15/15 scoring formula
-are still future work. Email delivery, scheduling and additional job sources are
-also not implemented in this branch. See [the roadmap audit](roadmap_audit.md) and
+are still future work. Email delivery and additional job sources are also not
+implemented in this branch. The collection workflow now exists in
+`.github/workflows/pipeline.yml` with a six-hour schedule and manual trigger;
+scheduled operation requires it on the default branch with repository secrets.
+Skill extraction is separately enabled and is not run by that workflow. See [the roadmap audit](roadmap_audit.md) and
 [Skills setup and contracts](skill_development.md).
 
 ## Connected MVP foundation

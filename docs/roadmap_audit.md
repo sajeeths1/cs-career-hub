@@ -9,7 +9,7 @@ secrets and deployment state are not inferred from source files.
 | Supabase Auth, profiles and RLS | Implemented in code | Migrations 000–002, auth screen, profile form and shared public browser client. Hosted setup must be verified by the Data owner. |
 | Greenhouse collection, filtering, deduplication and stale closure | Implemented | `backend/worker/pipeline.py`; service-role writes, company failure isolation and database fingerprint uniqueness. |
 | Jobs, search/filtering and application tracker | Implemented | `frontend/app/page.tsx`, `frontend/lib/data.ts`; private tracker rows. |
-| Automatic collection | Planned | No `.github/workflows/pipeline.yml` in this checkout. Pipeline owner should add schedule, manual trigger, concurrency rules and repository secrets. |
+| Automatic collection | Workflow implemented; activation unverified | `.github/workflows/pipeline.yml` schedules collection every six hours and supports manual runs. Scheduled execution requires this file on the default branch and configured repository secrets. It runs collection only; skill extraction remains a separate or explicitly enabled step. |
 | Shared skill catalog and student skills | Implemented | Migrations 003–005; normalized aliases and persisted student selections. |
 | Once-per-posting extraction | Keyword baseline implemented | `skills.py`, bounded batches, persisted version/hash, atomic writes and invalidation. No paid API calls. |
 | LLM extraction | Planned | Choose provider/key owner; validate structured output; distinguish required and nice-to-have skills and seniority. The baseline must not be presented as AI. |
@@ -46,12 +46,13 @@ planned scoring algorithm.
 2. **Intelligence owner:** review the alias/catalog and extraction-save contract,
    backfill keyword tags, then implement the separately selected LLM and matching
    work. Keep required versus optional labels explicit before scoring.
-3. **Pipeline owner:** optionally run `pipeline.py --with-skills --skill-limit 50`,
-   then add scheduled collection and future source adapters in the planned phase.
+3. **Pipeline owner:** verify the collection workflow on the default branch and
+   repository secrets. Optionally run `pipeline.py --with-skills --skill-limit 50`;
+   the existing workflow runs collection only. Additional source adapters remain planned.
 4. **Frontend/product:** test signup → select skills → inspect demand/gaps → open
    resources → save/update goals. Matching and email portions of the full Phase 5
    journey remain blocked on their respective unfinished phases.
 
 The Skills slice is complete after migration and backfill. The entire project is
-not complete until the matching, scheduling, notification and deployment gates in
+not complete until the matching, scheduled-operation, notification and deployment gates in
 the original plan are met.
