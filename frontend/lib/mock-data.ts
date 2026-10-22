@@ -55,13 +55,6 @@ export const jobs = [
   },
 ];
 
-export const skillDemand = [
-  { skill: "Python", score: 86 },
-  { skill: "React", score: 78 },
-  { skill: "SQL", score: 71 },
-  { skill: "AWS", score: 54 },
-];
-
 export const applicationColumns = [
   {
     status: "Saved",

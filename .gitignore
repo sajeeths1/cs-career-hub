@@ -152,6 +152,8 @@ activemq-data/
 
 # Dependencies
 node_modules/
+.next/
+*.tsbuildinfo
 
 # Next.js
 .next/

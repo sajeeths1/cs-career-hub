@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { AuthScreen } from "@/components/auth-screen";
 import { ProfileForm } from "@/components/profile-form";
+import { SkillDevelopment } from "@/components/skill-development";
 import { ResumeUpload } from "@/components/resume-upload";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,7 @@ import {
   removeApplication,
   setApplicationStatus,
 } from "@/lib/data";
-import { navItems, skillDemand } from "@/lib/mock-data";
+import { navItems } from "@/lib/mock-data";
 import { supabase } from "@/lib/supabase";
 import {
   TRACKER_COLUMNS,
@@ -68,7 +69,7 @@ export default function Home() {
   if (!supabase) return <SetupMessage />;
   if (checkingSession) return <CenteredText text="Loading…" />;
   if (!session) return <AuthScreen />;
-  return <Dashboard userId={session.user.id} email={session.user.email ?? ""} />;
+  return <Dashboard key={session.user.id} userId={session.user.id} email={session.user.email ?? ""} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +247,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
           </Button>
         </header>
 
-        <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6">
+        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-6 sm:px-6">
           <section>
             <p className="text-sm font-medium text-muted-foreground">Student dashboard</p>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight">
@@ -431,27 +432,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               </Card>
             </TabsContent>
 
-            {/* ---------------- Skills (still sample data) ---------------- */}
             <TabsContent value="skills">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Skills employers want</CardTitle>
-                  <CardDescription>
-                    Sample data for now. Real skill trends arrive with the AI skill-extraction phase.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-4">
-                  {skillDemand.map((skill) => (
-                    <div className="grid gap-2 sm:grid-cols-[140px_1fr_48px] sm:items-center" key={skill.skill}>
-                      <span className="text-sm font-medium">{skill.skill}</span>
-                      <div className="h-2 overflow-hidden rounded-full bg-muted">
-                        <div className="h-full rounded-full bg-primary" style={{ width: `${skill.score}%` }} />
-                      </div>
-                      <span className="text-sm font-semibold">{skill.score}%</span>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+              <SkillDevelopment userId={userId} jobs={jobs} jobsLoading={loading} />
             </TabsContent>
 
             {/* ---------------- Profile ---------------- */}

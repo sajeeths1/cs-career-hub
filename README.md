@@ -16,6 +16,7 @@ Company job boards ──► Python pipeline ──► Supabase database ◄─�
 - A **Python pipeline** downloads postings from public Greenhouse job boards, keeps U.S. early-career CS roles, removes duplicates, and marks postings that disappear as closed.
 - A **Supabase** database stores the jobs, student accounts and application trackers. Its security rules make sure each student can only see their own data.
 - A **Next.js website** lets students browse jobs and manage their tracker.
+- The **Skills tab** compares postings with students' skills, suggests learning resources and goals, and saves their progress. See [skill development](docs/skill_development.md) for setup and matching details.
 
 We only use public job-board feeds that are meant to be read. We do not scrape sites whose terms of service forbid it.
 
@@ -59,6 +60,8 @@ cd cs-career-hub
    1. `supabase/migrations/000_basic_schema.sql`
    2. `supabase/migrations/001_add_pipeline_columns.sql`
    3. `supabase/migrations/002_mvp_frontend_fields.sql`
+   4. `supabase/migrations/003_add_skills_and_notifications.sql`
+   5. `supabase/migrations/004_skill_development.sql`
 3. Optional, for local testing: under **Authentication → Sign In / Providers → Email**, turn off **Confirm email** so new accounts work without an email link.
 
 ### 3. Get your keys
