@@ -1,4 +1,4 @@
-// Matches supabase/migrations 000 + 001 + 002 exactly.
+// Matches supabase/migrations 000 + 001 + 002 + 003 exactly.
 // Paste into dbdiagram.io to redraw the diagram.
 
 Enum application_status {
@@ -31,6 +31,19 @@ Table jobs {
   dedupe_hash text [not null, unique, note: 'fingerprint of company + title + location']
   is_open boolean [not null, default: true]
   last_seen_at timestamptz [not null]
+  skills_extracted_at timestamptz [note: 'null = skills not extracted yet']
+}
+
+Table skills {
+  id bigint [pk, increment]
+  name text [not null, unique]
+  category text [not null, note: 'language, framework, database, cloud, tool, concept']
+}
+
+Table job_skills {
+  job_id bigint [pk]
+  skill_id bigint [pk]
+  required boolean [not null, default: true, note: 'false = preferred / nice-to-have']
 }
 
 Table profiles {
@@ -58,3 +71,5 @@ Table applications {
 Ref: jobs.company_id > companies.id
 Ref: applications.user_id > profiles.id
 Ref: applications.job_id > jobs.id
+Ref: job_skills.job_id > jobs.id
+Ref: job_skills.skill_id > skills.id
