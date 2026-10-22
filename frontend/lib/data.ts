@@ -24,11 +24,22 @@ export async function fetchOpenJobs(limit = 300): Promise<Job[]> {
   return (data ?? []) as unknown as Job[];
 }
 
+/** Fetch a tracked posting directly, even when closed or outside the newest 300. */
+export async function fetchJobById(jobId: number): Promise<Job> {
+  const { data, error } = await db()
+    .from("jobs")
+    .select(JOB_COLUMNS)
+    .eq("id", jobId)
+    .single();
+  if (error) throw error;
+  return data as unknown as Job;
+}
+
 /** The signed-in student's tracked jobs. RLS only returns their own rows. */
 export async function fetchApplications(): Promise<Application[]> {
   const { data, error } = await db()
     .from("applications")
-    .select("id, job_id, status, updated_at, jobs(id, title, url, location, companies(name))")
+    .select("id, job_id, status, updated_at, jobs(id, title, url, location, posted_at, work_mode, companies(name))")
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as unknown as Application[];
