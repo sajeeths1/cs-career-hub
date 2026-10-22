@@ -7,6 +7,11 @@ rules, not an LLM. There is no paid API or separate API key.
 
 ## Local setup
 
+For all project dependencies together, run `python3 setup_project.py` from the
+repository root (`python setup_project.py` on Windows). This installs frontend,
+job-worker and resume-parser packages and checks the OCR runtime. The separate
+resume-only setup below remains available.
+
 From the repository root, on macOS:
 
 ```bash

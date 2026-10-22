@@ -13,6 +13,10 @@ Next.js + React + TypeScript frontend for CS Career Hub.
 
 ## Commands
 
+To install dependencies for the entire project, run `python3 setup_project.py`
+from the repository root (`python setup_project.py` on Windows). This includes
+frontend packages and both Python environments. Individual frontend commands:
+
 ```bash
 npm install
 npm run dev

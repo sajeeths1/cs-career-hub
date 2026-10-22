@@ -1,5 +1,10 @@
 # Backend
 
+For the whole project, run `python3 setup_project.py` from the repository root
+(`python setup_project.py` on Windows). It installs frontend packages and both
+backend environments, and checks/installs Tesseract on supported systems.
+The individual worker setup below is still available.
+
 ## Job ingestion worker (`worker/`)
 
 - `pipeline.py`: the MVP pipeline. Collects jobs from every Greenhouse company in the `companies` table (and adds a starter list of companies), keeps U.S. early-career-friendly CS roles, saves descriptions and work mode, skips duplicates, and closes jobs that disappear.

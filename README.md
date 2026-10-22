@@ -43,10 +43,41 @@ These steps run the project on **macOS** and **Windows**.
 | :-- | :-- | :-- |
 | Git | any recent version | [git-scm.com](https://git-scm.com) |
 | Python | 3.11 or newer | [python.org](https://www.python.org) (Windows: check **"Add Python to PATH"** during install) |
-| Node.js | 20 LTS or newer | [nodejs.org](https://nodejs.org) |
+| Node.js | 22 or newer | [nodejs.org](https://nodejs.org) |
 | Supabase account | default | [supabase.com](https://supabase.com) |
 
 Use **Terminal** on macOS and **PowerShell** on Windows.
+
+### Install all project dependencies with one command
+
+After cloning, run this from the project root:
+
+```bash
+python3 setup_project.py
+```
+
+On Windows, use `python setup_project.py`.
+
+This installs frontend packages from `frontend/package-lock.json` and both Python
+requirements files into their existing `backend/worker/.venv` and
+`backend/resume/.venv` environments. You do not need to activate either environment
+for setup. Rerun the same command after pulling dependency changes.
+
+Install Python 3.11+ and Node.js 22+ first. Setup also checks Tesseract and its
+English OCR data. If Tesseract is missing, it installs it through Homebrew on
+macOS or apt on Debian/Ubuntu (which may ask for your administrator password).
+On Windows or other Linux distributions, install Tesseract and add it to PATH
+before running setup. macOS requires Homebrew for automatic Tesseract installation.
+
+To check an existing installation without changing it:
+
+```bash
+python3 setup_project.py --check
+```
+
+Supabase keys and database migrations are configured separately below. Setup
+preserves `.env` files and does not run migrations or collect jobs. After this
+command succeeds, you can skip the individual dependency-install commands below.
 
 ### 1. Get the code
 
