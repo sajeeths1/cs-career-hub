@@ -1,8 +1,10 @@
 import {
   Briefcase,
+  Building2,
   CheckCircle2,
   ClipboardList,
   LayoutDashboard,
+  Settings,
   Target,
   UserRound,
 } from "lucide-react";
@@ -12,7 +14,9 @@ export const navItems = [
   { label: "Jobs", icon: Briefcase },
   { label: "Applications", icon: ClipboardList },
   { label: "Skills", icon: Target },
+  { label: "Companies", icon: Building2 },
   { label: "Profile", icon: UserRound },
+  { label: "Settings", icon: Settings },
 ];
 
 export const metrics = [

@@ -90,8 +90,18 @@ Table notification_settings {
   user_id uuid [pk]
   email_enabled boolean [not null, default: true]
   instant_priority_alerts boolean [not null, default: true]
-  digest_frequency text [not null, default: 'weekly', note: 'daily, weekly or off']
+  digest_frequency text [not null, default: 'weekly', note: 'priority companies not already sent instantly; daily, weekly or off']
+  followed_digest_frequency text [not null, default: 'weekly', note: 'daily, weekly or off']
+  target_role_digest_frequency text [not null, default: 'off', note: 'daily, weekly or off']
   updated_at timestamptz [not null]
+}
+
+Table followed_companies {
+  user_id uuid [not null]
+  company_id bigint [not null]
+  created_at timestamptz [not null]
+  indexes { (user_id, company_id) [pk] }
+  Note: 'Default (digest-only) tier, unlimited. priority_companies is the capped, instant-alert tier'
 }
 
 Table learning_goals {
@@ -123,6 +133,19 @@ Table job_skill_extractions {
   Note: 'Changed title/description invalidates tags and this marker; atomic worker-only RPC saves both'
 }
 
+Table notifications {
+  id bigint [pk, increment]
+  user_id uuid [not null]
+  job_id bigint [not null]
+  company_id bigint [not null]
+  created_at timestamptz [not null]
+  read_at timestamptz
+  emailed_at timestamptz [note: 'Set once included in an instant alert or digest email']
+  source text [not null, default: 'priority_company', note: 'priority_company, followed_company or target_role']
+  indexes { (user_id, job_id) [unique] }
+  Note: 'One row per new posting relevant to the user, deduped by (user, job); source records which rule created it'
+}
+
 Ref: job_skills.job_id > jobs.id [delete: cascade]
 Ref: job_skills.skill_id > skills.id [delete: cascade]
 Ref: user_skills.user_id > profiles.id [delete: cascade]
@@ -135,3 +158,8 @@ Ref: learning_goals.skill_id > skills.id [delete: cascade]
 Ref: learning_resources.skill_id > skills.id [delete: cascade]
 Ref: skill_aliases.skill_id > skills.id [delete: cascade]
 Ref: job_skill_extractions.job_id - jobs.id [delete: cascade]
+Ref: notifications.user_id > profiles.id [delete: cascade]
+Ref: notifications.job_id > jobs.id [delete: cascade]
+Ref: notifications.company_id > companies.id [delete: cascade]
+Ref: followed_companies.user_id > profiles.id [delete: cascade]
+Ref: followed_companies.company_id > companies.id [delete: cascade]
