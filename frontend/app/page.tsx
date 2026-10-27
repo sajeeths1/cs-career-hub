@@ -15,6 +15,10 @@ import { AuthScreen } from "@/components/auth-screen";
 import { ProfileForm } from "@/components/profile-form";
 import { SkillDevelopment } from "@/components/skill-development";
 import { ResumeUpload } from "@/components/resume-upload";
+import { NotificationBell } from "@/components/notification-bell";
+import { NotificationSettingsTab } from "@/components/notification-settings";
+import { CompaniesTab } from "@/components/companies";
+import { FollowCompanyButton } from "@/components/follow-company-button";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   fetchApplications,
+  fetchFollowedCompanyIds,
   fetchJob,
   fetchJobsForTargetRoles,
   fetchOpenJobs,
@@ -116,6 +121,19 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [openingJob, setOpeningJob] = useState(false);
   const [jobOpenError, setJobOpenError] = useState<string | null>(null);
   const jobOpenRequest = useRef(0);
+  const [followedCompanyIds, setFollowedCompanyIds] = useState<number[]>([]);
+
+  const loadFollowedCompanies = useCallback(async () => {
+    try {
+      setFollowedCompanyIds(await fetchFollowedCompanyIds(userId));
+    } catch {
+      // Non-critical for the jobs view; the Settings tab surfaces load errors for this.
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void loadFollowedCompanies();
+  }, [loadFollowedCompanies]);
   const rolesKey = profile?.target_roles ?? "";
   const targetRoles = useMemo(() => parseTargetRoles(rolesKey), [rolesKey]);
 
@@ -156,8 +174,9 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const recommendedJobs = personalized.key === rolesKey && targetRoles.length && !profileError ? personalized.jobs : [];
   const recommendationsLoading = profileLoading || (!profileError && !!targetRoles.length && (personalized.key !== rolesKey || personalized.loading));
   const recommendationError = personalized.key === rolesKey ? personalized.error : null;
-  const viewJobs = jobView === "for_you" ? recommendedJobs : jobs;
-  const viewLoading = jobView === "for_you" ? recommendationsLoading : loading;
+  // With no saved target roles, "For you" falls back to all jobs instead of showing nothing.
+  const viewJobs = jobView === "for_you" && targetRoles.length ? recommendedJobs : jobs;
+  const viewLoading = jobView === "for_you" && targetRoles.length ? recommendationsLoading : loading;
   const dashboardPersonalized = !profileLoading && !profileError && targetRoles.length > 0;
   const dashboardJobs = dashboardPersonalized ? recommendedJobs : jobs;
   const dashboardLoading = loading || profileLoading || (dashboardPersonalized && recommendationsLoading);
@@ -337,10 +356,11 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             />
           </div>
           <Button aria-label="Refresh" size="icon" variant="outline" onClick={() => {
-            void loadAll(); void loadProfile(); setRecommendationRefresh((n) => n + 1);
+            void loadAll(); void loadProfile(); void loadFollowedCompanies(); setRecommendationRefresh((n) => n + 1);
           }}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
+          <NotificationBell />
           <Button
             aria-label="Sign out"
             className="lg:hidden"
@@ -384,7 +404,9 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               <TabsTrigger value="jobs">Jobs</TabsTrigger>
               <TabsTrigger value="applications">Applications</TabsTrigger>
               <TabsTrigger value="skills">Skills</TabsTrigger>
+              <TabsTrigger value="companies">Companies</TabsTrigger>
               <TabsTrigger value="profile">Profile</TabsTrigger>
+              <TabsTrigger value="settings">Settings</TabsTrigger>
             </TabsList>
 
             {/* ---------------- Dashboard ---------------- */}
@@ -477,14 +499,14 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                   {jobView === "for_you" && !profileLoading && profileError && <div role="alert" className="grid gap-3 text-sm">
                     <p>Could not load your target roles: {profileError}</p><Button variant="outline" onClick={() => void loadProfile()}>Retry profile</Button>
                   </div>}
-                  {jobView === "for_you" && !viewLoading && !profileError && !targetRoles.length && <div className="grid gap-3 text-sm">
-                    <p>Add target roles in your profile to see jobs for you.</p><Button variant="outline" onClick={() => setTab("profile")}>Set target roles</Button>
-                  </div>}
-                  {jobView === "for_you" && !viewLoading && !profileError && recommendationError && <div role="alert" className="grid gap-3 text-sm">
+                  {jobView === "for_you" && !profileError && !targetRoles.length && <p className="text-sm text-muted-foreground">
+                    Showing all jobs. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => setTab("profile")}>Set target roles</button> to personalize this view.
+                  </p>}
+                  {jobView === "for_you" && !viewLoading && !profileError && targetRoles.length > 0 && recommendationError && <div role="alert" className="grid gap-3 text-sm">
                     <p>Could not load personalized jobs: {recommendationError}</p><Button variant="outline" onClick={() => setRecommendationRefresh((n) => n + 1)}>Retry recommendations</Button>
                   </div>}
-                  {!viewLoading && filteredJobs.length === 0 && (jobView === "all" || (!profileError && targetRoles.length > 0 && !recommendationError)) ? (
-                    <EmptyText text={jobView === "for_you" ? "No jobs match your target roles and current filters. Try All jobs or update your profile." : "No jobs match your search and filters."} />
+                  {!viewLoading && filteredJobs.length === 0 && (jobView === "all" || !targetRoles.length || (!profileError && !recommendationError)) ? (
+                    <EmptyText text={jobView === "for_you" && targetRoles.length > 0 ? "No jobs match your target roles and current filters. Try All jobs or update your profile." : "No jobs match your search and filters."} />
                   ) : null}
                   {!viewLoading && filteredJobs.map((job) => (
                     <JobRow
@@ -502,9 +524,13 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
               {openingJob || jobOpenError ? <Card><CardContent className="p-5"><p role={jobOpenError ? "alert" : "status"} className="text-sm">{jobOpenError ?? "Loading job details…"}</p></CardContent></Card> : selectedJob && !viewLoading ? (
                 <JobDetail
+                  isFollowingCompany={followedCompanyIds.includes(selectedJob.company_id)}
                   job={selectedJob}
+                  onFollowCompanyToggled={(companyId, following) => setFollowedCompanyIds((ids) =>
+                    following ? [...ids, companyId] : ids.filter((id) => id !== companyId))}
                   status={statusByJob.get(selectedJob.id)}
                   onTrack={(status) => track(selectedJob.id, status)}
+                  userId={userId}
                 />
               ) : (
                 <Card>
@@ -560,6 +586,11 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               <SkillDevelopment userId={userId} jobs={jobs} jobsLoading={loading} />
             </TabsContent>
 
+            {/* ---------------- Companies ---------------- */}
+            <TabsContent value="companies">
+              <CompaniesTab userId={userId} />
+            </TabsContent>
+
             {/* ---------------- Profile ---------------- */}
             <TabsContent value="profile" className="grid gap-6 xl:grid-cols-[1fr_360px]">
               <Card>
@@ -577,6 +608,11 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                 </CardContent>
               </Card>
               <ResumeUpload compact userId={userId} result={resumeResult} onResult={setResumeResult} onProfileDraft={fillProfileFromResume} />
+            </TabsContent>
+
+            {/* ---------------- Settings ---------------- */}
+            <TabsContent value="settings">
+              <NotificationSettingsTab userId={userId} />
             </TabsContent>
           </Tabs>
         </div>
@@ -643,10 +679,16 @@ function JobDetail({
   job,
   status,
   onTrack,
+  userId,
+  isFollowingCompany,
+  onFollowCompanyToggled,
 }: {
   job: Job;
   status?: ApplicationStatus;
   onTrack: (status: ApplicationStatus) => void;
+  userId: string;
+  isFollowingCompany: boolean;
+  onFollowCompanyToggled: (companyId: number, following: boolean) => void;
 }) {
   return (
     <Card className="content-start">
@@ -658,6 +700,15 @@ function JobDetail({
               {job.companies?.name ?? "Unknown company"} · {job.location ?? "Location not listed"} ·{" "}
               {formatPosted(job.posted_at)}
             </CardDescription>
+            <div className="mt-2">
+              <FollowCompanyButton
+                companyId={job.company_id}
+                companyName={job.companies?.name ?? "this company"}
+                isActive={isFollowingCompany}
+                onToggled={onFollowCompanyToggled}
+                userId={userId}
+              />
+            </div>
           </div>
           <Badge>{WORK_MODE_LABELS[job.work_mode] ?? "Not listed"}</Badge>
         </div>

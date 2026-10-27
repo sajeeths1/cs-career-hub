@@ -22,6 +22,8 @@ import requests
 from dotenv import load_dotenv
 from supabase import create_client
 
+from notifier import notify_new_jobs, notify_target_role_matches
+
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
@@ -201,16 +203,18 @@ def collect(slug: str) -> list[dict]:
     return response.json().get("jobs", [])
 
 
-def save(supabase, rows: list[dict], company_id: int) -> int:
+def save(supabase, rows: list[dict], company_id: int) -> list[dict]:
+    """Upsert jobs for a company; return the rows that are newly added (not merely refreshed)."""
     existing = (
         supabase.table("jobs").select("dedupe_hash").eq("company_id", company_id).execute()
     )
     already_saved = {row["dedupe_hash"] for row in existing.data}
-    new_count = sum(1 for row in rows if row["dedupe_hash"] not in already_saved)
+    new_rows = []
     for start in range(0, len(rows), BATCH_SIZE):
         batch = rows[start:start + BATCH_SIZE]
-        supabase.table("jobs").upsert(batch, on_conflict="dedupe_hash").execute()
-    return new_count
+        result = supabase.table("jobs").upsert(batch, on_conflict="dedupe_hash").execute()
+        new_rows += [row for row in result.data if row["dedupe_hash"] not in already_saved]
+    return new_rows
 
 
 def close_old_jobs(supabase, company_id: int, now: datetime) -> int:
@@ -244,7 +248,8 @@ def main():
         .data
     )
 
-    totals = {"kept": 0, "new": 0, "closed": 0, "failed": 0}
+    totals = {"kept": 0, "new": 0, "closed": 0, "failed": 0, "notified": 0, "emailed": 0, "role_matched": 0}
+    all_new_jobs = []
     for company in companies:
         name, slug = company["name"], company["ats_slug"]
         try:
@@ -255,16 +260,25 @@ def main():
             continue
 
         rows = clean_up(raw_jobs, company["id"], now)
-        new_count = save(supabase, rows, company["id"])
+        new_rows = save(supabase, rows, company["id"])
         closed_count = close_old_jobs(supabase, company["id"], now)
+        notify_result = notify_new_jobs(supabase, company["id"], name, new_rows, now)
+        all_new_jobs += new_rows
         totals["kept"] += len(rows)
-        totals["new"] += new_count
+        totals["new"] += len(new_rows)
         totals["closed"] += closed_count
+        totals["notified"] += notify_result["notified"]
+        totals["emailed"] += notify_result["emailed"]
         print(f"  {name}: {len(raw_jobs)} downloaded, {len(rows)} kept, "
-              f"{new_count} new, {closed_count} closed")
+              f"{len(new_rows)} new, {closed_count} closed")
+
+    role_match_result = notify_target_role_matches(supabase, all_new_jobs, now)
+    totals["role_matched"] = role_match_result["notified"]
 
     print(f"\nDone. {totals['kept']} jobs kept, {totals['new']} new, "
-          f"{totals['closed']} closed, {totals['failed']} companies skipped.")
+          f"{totals['closed']} closed, {totals['failed']} companies skipped, "
+          f"{totals['notified']} notifications created, {totals['emailed']} instant emails sent, "
+          f"{totals['role_matched']} target-role notifications created.")
 
     if args.with_skills:
         import logging
