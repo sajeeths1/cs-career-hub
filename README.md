@@ -16,6 +16,9 @@ Company job boards ──► Python pipeline ──► Supabase database ◄─�
 - A **Python pipeline** downloads postings from public Greenhouse job boards, keeps U.S. early-career CS roles, removes duplicates, and marks postings that disappear as closed.
 - A **Supabase** database stores the jobs, student accounts and application trackers. Its security rules make sure each student can only see their own data.
 - A **Next.js website** lets students browse jobs and manage their tracker.
+- The **For you jobs view** uses saved profile target roles to find relevant open titles. Switch to **All jobs** for general browsing. See [profile personalization](docs/profile_personalization.md) for matching behavior and limits.
+- The **Skills tab** compares postings with students' skills, suggests learning resources and goals, and saves their progress. See [skill development](docs/skill_development.md) for setup and matching details.
+- The **Resume center** extracts text and details from PDFs, DOCX and images, using OCR for scans. Students review suggestions before filling profile fields or adding skills. See [resume setup](docs/resume_parsing.md) for the Python/Tesseract requirements.
 
 We only use public job-board feeds that are meant to be read. We do not scrape sites whose terms of service forbid it.
 
@@ -40,10 +43,41 @@ These steps run the project on **macOS** and **Windows**.
 | :-- | :-- | :-- |
 | Git | any recent version | [git-scm.com](https://git-scm.com) |
 | Python | 3.11 or newer | [python.org](https://www.python.org) (Windows: check **"Add Python to PATH"** during install) |
-| Node.js | 20 LTS or newer | [nodejs.org](https://nodejs.org) |
+| Node.js | 22 or newer | [nodejs.org](https://nodejs.org) |
 | Supabase account | default | [supabase.com](https://supabase.com) |
 
 Use **Terminal** on macOS and **PowerShell** on Windows.
+
+### Install all project dependencies with one command
+
+After cloning, run this from the project root:
+
+```bash
+python3 setup_project.py
+```
+
+On Windows, use `python setup_project.py`.
+
+This installs frontend packages from `frontend/package-lock.json` and both Python
+requirements files into their existing `backend/worker/.venv` and
+`backend/resume/.venv` environments. You do not need to activate either environment
+for setup. Rerun the same command after pulling dependency changes.
+
+Install Python 3.11+ and Node.js 22+ first. Setup also checks Tesseract and its
+English OCR data. If Tesseract is missing, it installs it through Homebrew on
+macOS or apt on Debian/Ubuntu (which may ask for your administrator password).
+On Windows or other Linux distributions, install Tesseract and add it to PATH
+before running setup. macOS requires Homebrew for automatic Tesseract installation.
+
+To check an existing installation without changing it:
+
+```bash
+python3 setup_project.py --check
+```
+
+Supabase keys and database migrations are configured separately below. Setup
+preserves `.env` files and does not run migrations or collect jobs. After this
+command succeeds, you can skip the individual dependency-install commands below.
 
 ### 1. Get the code
 
@@ -59,6 +93,9 @@ cd cs-career-hub
    1. `supabase/migrations/000_basic_schema.sql`
    2. `supabase/migrations/001_add_pipeline_columns.sql`
    3. `supabase/migrations/002_mvp_frontend_fields.sql`
+   4. `supabase/migrations/003_add_skills_and_notifications.sql`
+   5. `supabase/migrations/004_skill_development.sql`
+   6. `supabase/migrations/005_skill_development_catalog.sql`
 3. Optional, for local testing: under **Authentication → Sign In / Providers → Email**, turn off **Confirm email** so new accounts work without an email link.
 
 ### 3. Get your keys
@@ -121,6 +158,15 @@ npm run dev
 ```
 
 Open **http://localhost:3000**, create an account, and start browsing jobs.
+
+For skill demand and learning recommendations, activate the backend virtual environment
+and run `python skills.py --limit 50` from `backend/worker`. Repeat until it reports
+zero attempted jobs, or use `python pipeline.py --with-skills --skill-limit 50` on
+future collection runs. This saves keyword-based skill mentions once per posting;
+LLM extraction and match scores remain planned. See [skill development](docs/skill_development.md).
+
+For a shared Supabase project, the team's Data owner applies new migrations.
+Do not rerun migrations that have already been applied.
 
 ### Next time
 

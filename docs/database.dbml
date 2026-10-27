@@ -1,4 +1,5 @@
-// Matches supabase/migrations 000 + 001 + 002 exactly.
+// Tables and relationships through supabase/migrations 000–005.
+// SQL migrations remain authoritative for RLS, expression indexes, checks, triggers and RPCs.
 // Paste into dbdiagram.io to redraw the diagram.
 
 Enum application_status {
@@ -58,3 +59,107 @@ Table applications {
 Ref: jobs.company_id > companies.id
 Ref: applications.user_id > profiles.id
 Ref: applications.job_id > jobs.id
+
+
+Table skills {
+  id bigint [pk, increment]
+  name text [not null, note: 'Unique on lower(trim(name))']
+}
+
+Table job_skills {
+  job_id bigint [not null]
+  skill_id bigint [not null]
+  indexes { (job_id, skill_id) [pk] }
+}
+
+Table user_skills {
+  user_id uuid [not null]
+  skill_id bigint [not null]
+  indexes { (user_id, skill_id) [pk] }
+}
+
+Table priority_companies {
+  user_id uuid [not null]
+  company_id bigint [not null]
+  created_at timestamptz [not null]
+  indexes { (user_id, company_id) [pk] }
+  Note: 'Database trigger limits each user to ten priority companies'
+}
+
+Table notification_settings {
+  user_id uuid [pk]
+  email_enabled boolean [not null, default: true]
+  instant_priority_alerts boolean [not null, default: true]
+  digest_frequency text [not null, default: 'weekly', note: 'priority companies not already sent instantly; daily, weekly or off']
+  followed_digest_frequency text [not null, default: 'weekly', note: 'daily, weekly or off']
+  target_role_digest_frequency text [not null, default: 'off', note: 'daily, weekly or off']
+  updated_at timestamptz [not null]
+}
+
+Table followed_companies {
+  user_id uuid [not null]
+  company_id bigint [not null]
+  created_at timestamptz [not null]
+  indexes { (user_id, company_id) [pk] }
+  Note: 'Default (digest-only) tier, unlimited. priority_companies is the capped, instant-alert tier'
+}
+
+Table learning_goals {
+  user_id uuid [not null]
+  skill_id bigint [not null]
+  status text [not null, default: 'planned', note: 'planned, in_progress or completed']
+  indexes { (user_id, skill_id) [pk] }
+}
+
+Table learning_resources {
+  id bigint [pk, increment]
+  skill_id bigint [not null]
+  title text [not null]
+  url text [not null, note: 'HTTPS only']
+  suggested_goal text [not null]
+  indexes { (skill_id, url) [unique] }
+}
+
+Table skill_aliases {
+  alias text [pk, note: 'Lowercase and trimmed']
+  skill_id bigint [not null]
+}
+
+Table job_skill_extractions {
+  job_id bigint [pk]
+  input_hash text [not null, note: 'SHA-256 of title and description JSON']
+  extractor_version text [not null]
+  extracted_at timestamptz [not null]
+  Note: 'Changed title/description invalidates tags and this marker; atomic worker-only RPC saves both'
+}
+
+Table notifications {
+  id bigint [pk, increment]
+  user_id uuid [not null]
+  job_id bigint [not null]
+  company_id bigint [not null]
+  created_at timestamptz [not null]
+  read_at timestamptz
+  emailed_at timestamptz [note: 'Set once included in an instant alert or digest email']
+  source text [not null, default: 'priority_company', note: 'priority_company, followed_company or target_role']
+  indexes { (user_id, job_id) [unique] }
+  Note: 'One row per new posting relevant to the user, deduped by (user, job); source records which rule created it'
+}
+
+Ref: job_skills.job_id > jobs.id [delete: cascade]
+Ref: job_skills.skill_id > skills.id [delete: cascade]
+Ref: user_skills.user_id > profiles.id [delete: cascade]
+Ref: user_skills.skill_id > skills.id [delete: cascade]
+Ref: priority_companies.user_id > profiles.id [delete: cascade]
+Ref: priority_companies.company_id > companies.id [delete: cascade]
+Ref: notification_settings.user_id - profiles.id [delete: cascade]
+Ref: learning_goals.user_id > profiles.id [delete: cascade]
+Ref: learning_goals.skill_id > skills.id [delete: cascade]
+Ref: learning_resources.skill_id > skills.id [delete: cascade]
+Ref: skill_aliases.skill_id > skills.id [delete: cascade]
+Ref: job_skill_extractions.job_id - jobs.id [delete: cascade]
+Ref: notifications.user_id > profiles.id [delete: cascade]
+Ref: notifications.job_id > jobs.id [delete: cascade]
+Ref: notifications.company_id > companies.id [delete: cascade]
+Ref: followed_companies.user_id > profiles.id [delete: cascade]
+Ref: followed_companies.company_id > companies.id [delete: cascade]

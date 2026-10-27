@@ -12,6 +12,7 @@ export type ApplicationStatus =
 
 export type Job = {
   id: number;
+  company_id: number;
   title: string;
   location: string | null;
   url: string;
@@ -35,6 +36,8 @@ export type Profile = {
   major: string | null;
   preferred_location: string | null;
   target_roles: string | null;
+  school?: string | null;
+  grad_year?: number | null;
 };
 
 /** Visible tracker statuses, in order. Legacy not_applied rows appear as Saved. */
@@ -51,4 +54,45 @@ export const WORK_MODE_LABELS: Record<WorkMode, string> = {
   hybrid: "Hybrid",
   in_person: "In person",
   unknown: "Not listed",
+};
+
+// Skill-development tables and the read-only reporting RPC.
+export type Skill = { id: number; name: string };
+export type LearningGoal = { skill_id: number; status: "planned" | "in_progress" | "completed" };
+export type LearningResource = {
+  skill_id: number; title: string; url: string; suggested_goal: string;
+};
+export type SkillDemand = {
+  skill_id: number; count: number; recent_count: number; previous_count: number;
+  examples: { id: number; title: string; url: string; company_name: string }[];
+};
+export type SkillOverview = {
+  total_open_jobs: number; matching_jobs: number; analyzed_jobs: number; skills: SkillDemand[];
+};
+export type RankedSkill = SkillDemand & { skill: Skill; known: boolean };
+
+// Notifications: priority companies, preferences and the in-app feed (migrations 003, 006).
+export type Company = { id: number; name: string };
+
+export type DigestFrequency = "daily" | "weekly" | "off";
+
+export type NotificationSettings = {
+  user_id: string;
+  email_enabled: boolean;
+  instant_priority_alerts: boolean;
+  digest_frequency: DigestFrequency;
+  followed_digest_frequency: DigestFrequency;
+  target_role_digest_frequency: DigestFrequency;
+};
+
+export type NotificationSource = "priority_company" | "followed_company" | "target_role";
+
+export type NotificationRow = {
+  id: number;
+  job_id: number;
+  created_at: string;
+  read_at: string | null;
+  source: NotificationSource;
+  jobs: { title: string; url: string } | null;
+  companies: { name: string } | null;
 };

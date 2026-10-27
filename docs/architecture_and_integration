@@ -29,11 +29,41 @@ browser          │ (anon key)           │
 
 **Key design rule:** the pipeline and the website never call each other. Each one only reads and writes the database. The slow work happens in the background, so pages load fast; a pipeline failure never takes the website down; and the frontend and backend teams can work independently as long as both follow the database schema.
 
-**We use Supabase's built-in API instead of writing our own server.** Supabase automatically provides an API for our tables. The website calls it through Supabase's JavaScript library, and the database's security rules decide what each student may read or change. This means there is no separate backend server for our team to write, host or keep running. Work that needs secret keys (such as the planned AI matching and email alerts) runs in the Python worker instead.
+**We use Supabase's built-in API for database operations.** The website calls it through Supabase's JavaScript library, and database security rules decide what each student may read or change. Job collection and planned scoring/email workers remain separate. Resume processing now uses an authenticated Next.js `/api/resume` endpoint that invokes a local Python/Tesseract subprocess. Install that runtime alongside Next.js; it requires no separate listening backend service. See [resume setup](resume_parsing.md).
 
 ---
 
-## Current version: Connected MVP
+## Skills integration update
+
+The connected MVP remains the foundation. Migrations 003–005 now add skills,
+private learning goals, database-backed learning resources, canonical aliases and
+per-posting extraction metadata. A separate bounded Python worker saves keyword
+skill mentions to Supabase; the Skills page reads a database report over all open
+postings, shows coverage, demand, job evidence and learning goals. All website
+queries remain in `frontend/lib/data.ts`, with contracts in `frontend/lib/types.ts`.
+The website does not call the worker. No service-role key or LLM runs in the browser.
+
+This baseline does **not** complete Phase 3: the LLM provider, required versus
+optional qualifications, precomputed `job_matches` and the 70/15/15 scoring formula
+are still future work. Email delivery and additional job sources are also not
+implemented in this branch. The collection workflow now exists in
+`.github/workflows/pipeline.yml` with a six-hour schedule and manual trigger;
+scheduled operation requires it on the default branch with repository secrets.
+Skill extraction is separately enabled and is not run by that workflow. See [the roadmap audit](roadmap_audit.md) and
+[Skills setup and contracts](skill_development.md).
+
+## Profile personalization update
+
+Saved target roles now personalize the Jobs **For you** view and dashboard
+suggestions. The browser uses the existing Supabase API to query open titles,
+normalizes common role wording and checks word matches. It can retrieve matches
+beyond the general feed's first 300 jobs, while displaying up to 300 matches.
+**All jobs** remains available. Saving a profile refreshes recommendations.
+There are no new schema changes or fit scores. Location preferences and the
+planned 70/15/15 scoring formula are separate future work. See
+[profile personalization](profile_personalization.md) for the contract and limits.
+
+## Connected MVP foundation
 
 ### Purpose
 
@@ -183,7 +213,7 @@ The dashboard keeps the original layout but uses real data:
 | Dashboard | Real | Top numbers (open jobs, saved, applied, interviewing), 6 newest jobs, tracker counts |
 | Jobs | Real | Search and work-mode filter; detail panel with description, "Open posting" link and a tracker status menu |
 | Applications | Real | Five-column tracker; each card has a status menu and a remove button |
-| Skills | **Sample data** | Still from `mock-data.ts`, clearly labeled |
+| Skills | **Database-backed** | Persisted skill mentions, demand/coverage report, curated resources and private goals (migrations 003–005) |
 | Profile | Real | Loads and saves the `profiles` row |
 
 - **Loading:** jobs and applications load in parallel when the page opens; the refresh button reloads them. Errors show in a red banner.
@@ -234,22 +264,22 @@ Save ─► setApplicationStatus(userId, jobId, "saved")
 
 | Limitation | Notes / next step |
 | :-- | :-- |
-| Match scores and skills are not real yet | Planned: AI skill extraction plus a scoring formula |
-| Skills tab uses sample data | Will use real skill trends once job skills are extracted |
-| Resume upload is preview-only | Files never leave the browser |
+| Match scores are not implemented | Planned: LLM extraction of required/optional skills and precomputed 70/15/15 scoring; keyword skill mentions are available now |
+| Skill demand needs a backfill | After migration 005, run `python skills.py --limit 50` until there is no pending work; counts use stored tags and show analysis coverage |
+| Resume parsing requires an OCR runtime | Install `backend/resume` requirements and Tesseract alongside Next.js; students review fields/skills before saving. Files and raw text are not persisted. |
 | Website loads the newest 300 open jobs | Search and filters only cover those; add pagination later |
 | Pipeline runs manually | Next: run it automatically every few hours with GitHub Actions |
 | Only Greenhouse is supported | Add Lever, Ashby and community GitHub lists |
 | Title and location filter is keyword-based | Some jobs will be wrongly kept or dropped |
 | `work_mode` is guessed from text | Jobs that don't say "remote" or "hybrid" are marked in person |
-| `profiles.school` and `grad_year` are not in the form | Columns exist; add form fields when needed |
-| Website runs on localhost only | Deploy (for example, to Vercel) to share it |
+| Resume field detection is rule-based | School/graduation fields are now editable; OCR and suggestions require user review. Contact details and work history are review-only. |
+| Production hosting is not configured | Resume parsing needs a Node host with Python/Tesseract and backend source; default Node-only serverless hosting is insufficient. See resume deployment notes. |
 
 ---
 
 ## Making future changes safely
 
-- **Database changes:** add a new numbered file (`003_...sql`) in `supabase/migrations/`. Never edit a migration that has already been run. One owner runs migrations so everyone's database matches. Update `docs/database.dbml` and `frontend/lib/types.ts` to match.
+- **Database changes:** add a new numbered file (`006_...sql` or the next unused number) in `supabase/migrations/`. Never edit a migration that has already been run. One owner runs migrations so everyone's database matches. Update `docs/database.dbml` and `frontend/lib/types.ts` to match.
 - **New database calls from the website:** add them to `frontend/lib/data.ts`, not directly in components.
 - **New columns the pipeline fills:** add them to the row built in `clean_up()` in `pipeline.py`, using the exact column name.
 - **Keys:** the website only ever uses the anon/publishable key.
