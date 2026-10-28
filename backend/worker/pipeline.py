@@ -230,6 +230,23 @@ def close_old_jobs(supabase, company_id: int, now: datetime) -> int:
     return len(result.data)
 
 
+def find_closing_soon_jobs(supabase, company_id: int, now: datetime) -> list[dict]:
+    """Still open but not seen in the back half of its countdown to close_old_jobs.
+    Call before close_old_jobs so these jobs are still is_open when queried."""
+    window_start = (now - timedelta(days=CLOSE_AFTER_DAYS)).isoformat()
+    window_end = (now - timedelta(days=CLOSE_AFTER_DAYS - 1)).isoformat()
+    result = (
+        supabase.table("jobs")
+        .select("id, title, url, location, posted_at, company_id")
+        .eq("company_id", company_id)
+        .eq("is_open", True)
+        .gte("last_seen_at", window_start)
+        .lt("last_seen_at", window_end)
+        .execute()
+    )
+    return result.data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--with-skills", action="store_true", help="Extract stored skill mentions after collection (requires migration 005)")
@@ -248,8 +265,10 @@ def main():
         .data
     )
 
-    totals = {"kept": 0, "new": 0, "closed": 0, "failed": 0, "notified": 0, "emailed": 0, "role_matched": 0}
+    totals = {"kept": 0, "new": 0, "closed": 0, "failed": 0, "notified": 0, "emailed": 0,
+              "closing_soon": 0, "role_matched": 0}
     all_new_jobs = []
+    all_closing_soon_jobs = []
     for company in companies:
         name, slug = company["name"], company["ats_slug"]
         try:
@@ -261,21 +280,26 @@ def main():
 
         rows = clean_up(raw_jobs, company["id"], now)
         new_rows = save(supabase, rows, company["id"])
+        closing_soon_jobs = find_closing_soon_jobs(supabase, company["id"], now)
         closed_count = close_old_jobs(supabase, company["id"], now)
-        notify_result = notify_new_jobs(supabase, company["id"], name, new_rows, now)
+        notify_result = notify_new_jobs(supabase, company["id"], name, new_rows, now, kind="new_posting")
+        closing_notify_result = notify_new_jobs(supabase, company["id"], name, closing_soon_jobs, now, kind="closing_soon")
         all_new_jobs += new_rows
+        all_closing_soon_jobs += closing_soon_jobs
         totals["kept"] += len(rows)
         totals["new"] += len(new_rows)
         totals["closed"] += closed_count
-        totals["notified"] += notify_result["notified"]
-        totals["emailed"] += notify_result["emailed"]
+        totals["closing_soon"] += len(closing_soon_jobs)
+        totals["notified"] += notify_result["notified"] + closing_notify_result["notified"]
+        totals["emailed"] += notify_result["emailed"] + closing_notify_result["emailed"]
         print(f"  {name}: {len(raw_jobs)} downloaded, {len(rows)} kept, "
-              f"{len(new_rows)} new, {closed_count} closed")
+              f"{len(new_rows)} new, {len(closing_soon_jobs)} closing soon, {closed_count} closed")
 
-    role_match_result = notify_target_role_matches(supabase, all_new_jobs, now)
-    totals["role_matched"] = role_match_result["notified"]
+    role_match_result = notify_target_role_matches(supabase, all_new_jobs, now, kind="new_posting")
+    closing_role_match_result = notify_target_role_matches(supabase, all_closing_soon_jobs, now, kind="closing_soon")
+    totals["role_matched"] = role_match_result["notified"] + closing_role_match_result["notified"]
 
-    print(f"\nDone. {totals['kept']} jobs kept, {totals['new']} new, "
+    print(f"\nDone. {totals['kept']} jobs kept, {totals['new']} new, {totals['closing_soon']} closing soon, "
           f"{totals['closed']} closed, {totals['failed']} companies skipped, "
           f"{totals['notified']} notifications created, {totals['emailed']} instant emails sent, "
           f"{totals['role_matched']} target-role notifications created.")

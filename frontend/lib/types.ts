@@ -86,6 +86,7 @@ export type NotificationSettings = {
 };
 
 export type NotificationSource = "priority_company" | "followed_company" | "target_role";
+export type NotificationKind = "new_posting" | "closing_soon";
 
 export type NotificationRow = {
   id: number;
@@ -93,6 +94,7 @@ export type NotificationRow = {
   created_at: string;
   read_at: string | null;
   source: NotificationSource;
+  kind: NotificationKind;
   jobs: { title: string; url: string } | null;
   companies: { name: string } | null;
 };

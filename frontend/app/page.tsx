@@ -293,6 +293,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     }
   }
 
+  // Opens a deep link from an email (?job=123 or ?tab=settings) once, on mount.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const jobParam = params.get("job");
+    const tabParam = params.get("tab");
+    if (jobParam && Number.isInteger(Number(jobParam))) void openJob(Number(jobParam));
+    else if (tabParam) setTab(tabParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <main className="flex min-h-screen bg-background text-foreground">
       <aside className="hidden w-64 shrink-0 border-r bg-card px-4 py-5 lg:flex lg:flex-col">
@@ -360,7 +370,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
           }}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
-          <NotificationBell />
+          <NotificationBell onOpenJob={(jobId) => void openJob(jobId)} />
           <Button
             aria-label="Sign out"
             className="lg:hidden"
