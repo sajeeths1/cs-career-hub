@@ -14,15 +14,15 @@ type NavSection = {
 };
 
 /**
- * The five sidebar sections from the redesign. Tracker and Personalization still hold
- * several of the old tabs each; their small sub-tabs go away once those screens are rebuilt.
+ * The five sidebar sections from the redesign. Personalization still holds several of the
+ * old tabs; its small sub-tabs go away once that screen is rebuilt.
  */
 export const NAV_SECTIONS: NavSection[] = [
   { key: "dashboard", label: "Dashboard", icon: LayoutGrid, tabs: [{ value: "dashboard", label: "Dashboard" }] },
   { key: "jobs", label: "Jobs", icon: Briefcase, tabs: [{ value: "jobs", label: "Jobs" }] },
   {
     key: "tracker", label: "Tracker", icon: SquareKanban,
-    tabs: [{ value: "saved", label: "Saved" }, { value: "applications", label: "Applications" }],
+    tabs: [{ value: "tracker", label: "Tracker" }],
   },
   { key: "skills", label: "Skills", icon: Target, tabs: [{ value: "skills", label: "Skills" }] },
   {
@@ -111,7 +111,7 @@ export function MobileNav({ tab, onChange }: { tab: string; onChange: (tab: stri
   );
 }
 
-/** Sub-tabs for sections that still group several old tabs (Tracker, Personalization). */
+/** Sub-tabs for sections that still group several old tabs (Personalization). */
 export function SectionTabs({ tab, onChange }: { tab: string; onChange: (tab: string) => void }) {
   const section = sectionForTab(tab);
   if (section.tabs.length < 2) return null;

@@ -18,7 +18,7 @@ import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { DashboardView } from "@/components/dashboard-view";
 import { MobileNav, SectionTabs, Sidebar } from "@/components/sidebar";
 import { JobsView } from "@/components/jobs/jobs-view";
-import { TrackerView } from "@/components/tracker/tracker-view";
+import { TrackerView, type TrackerLayout } from "@/components/tracker/tracker-view";
 import { CenteredText, SetupMessage } from "@/components/ui/empty-states";
 import { type JobView, type WorkModeFilter } from "@/lib/filters";
 import { normalizeStatus } from "@/lib/format";
@@ -101,6 +101,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [trackerWorkMode, setTrackerWorkMode] = useState<WorkModeFilter>("all");
   const [trackerStatus, setTrackerStatus] = useState("all");
   const [trackerSort, setTrackerSort] = useState("recent");
+  const [trackerLayout, setTrackerLayout] = useState<TrackerLayout>("board");
   const [busyJobId, setBusyJobId] = useState<number | null>(null);
   const [jobView, setJobView] = useState<JobView>("for_you");
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -247,21 +248,6 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const selectedJob =
     (directJob?.id === selectedJobId ? directJob : null) ??
     filteredJobs.find((job) => job.id === selectedJobId) ?? filteredJobs[0] ?? null;
-
-  const savedJobs = applications.filter((app) => normalizeStatus(app.status) === "saved");
-  const activeApplications = applications.filter((app) => normalizeStatus(app.status) !== "saved");
-
-  function visibleTrackerRows(rows: Application[], view: "saved" | "applications") {
-    const term = trackerSearch.trim().toLowerCase();
-    return rows.filter((app) => {
-      if (view === "applications" && trackerStatus !== "all" && normalizeStatus(app.status) !== trackerStatus) return false;
-      if (trackerWorkMode !== "all" && app.jobs?.work_mode !== trackerWorkMode) return false;
-      const job = app.jobs;
-      return !term || `${job?.title ?? ""} ${job?.companies?.name ?? ""} ${job?.location ?? ""}`.toLowerCase().includes(term);
-    }).sort((a, b) => trackerSort === "title"
-      ? (a.jobs?.title ?? "").localeCompare(b.jobs?.title ?? "")
-      : new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
-  }
 
   const countByStatus = (status: ApplicationStatus) =>
     applications.filter((app) => normalizeStatus(app.status) === status).length;
@@ -414,32 +400,26 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               />
             </TabsContent>
 
-            {/* ---------------- Saved Jobs and Applications ---------------- */}
-            {(["saved", "applications"] as const).map((view) => (
-              <TabsContent value={view} key={view}>
-                <TrackerView
-                  title={view === "saved" ? "Saved Jobs" : "My Applications"}
-                  description={view === "saved"
-                    ? "Opportunities you bookmarked but haven't applied to yet."
-                    : "Track applications from submission through the final outcome."}
-                  rows={visibleTrackerRows(view === "saved" ? savedJobs : activeApplications, view)}
-                  total={view === "saved" ? savedJobs.length : activeApplications.length}
-                  view={view}
-                  search={trackerSearch}
-                  onSearch={setTrackerSearch}
-                  workMode={trackerWorkMode}
-                  onWorkMode={setTrackerWorkMode}
-                  status={trackerStatus}
-                  onStatus={setTrackerStatus}
-                  sort={trackerSort}
-                  onSort={setTrackerSort}
-                  busyJobId={busyJobId}
-                  onChange={track}
-                  onOpen={openJob}
-                  onRemove={untrack}
-                />
-              </TabsContent>
-            ))}
+            {/* ---------------- Tracker ---------------- */}
+            <TabsContent value="tracker">
+              <TrackerView
+                applications={applications}
+                layout={trackerLayout}
+                onLayout={setTrackerLayout}
+                status={trackerStatus}
+                onStatus={setTrackerStatus}
+                search={trackerSearch}
+                onSearch={setTrackerSearch}
+                workMode={trackerWorkMode}
+                onWorkMode={setTrackerWorkMode}
+                sort={trackerSort}
+                onSort={setTrackerSort}
+                busyJobId={busyJobId}
+                onChange={track}
+                onOpen={openJob}
+                onRemove={untrack}
+              />
+            </TabsContent>
 
             <TabsContent value="skills">
               <SkillDevelopment userId={userId} jobs={jobs} jobsLoading={loading} />
