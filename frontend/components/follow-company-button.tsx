@@ -49,7 +49,7 @@ export function FollowCompanyButton({
   }
 
   const Icon = mode === "priority" ? Star : Bell;
-  const label = mode === "priority" ? (isActive ? "Priority" : "Prioritize") : (isActive ? "Following" : "Follow");
+  const label = mode === "priority" ? (isActive ? "Instant" : "Add to instant") : (isActive ? "Following" : "Follow");
 
   return (
     <>
@@ -58,8 +58,12 @@ export function FollowCompanyButton({
         aria-pressed={isActive}
         disabled={busy}
         size="sm"
-        variant={isActive ? "default" : "outline"}
-        className={isActive && mode === "priority" ? "bg-amber-500 text-white hover:bg-amber-500/90" : undefined}
+        variant="outline"
+        className={isActive
+          ? mode === "priority"
+            ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+            : "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
+          : undefined}
         onClick={toggle}
       >
         <Icon className="h-3.5 w-3.5" aria-hidden="true" fill={isActive ? "currentColor" : "none"} />

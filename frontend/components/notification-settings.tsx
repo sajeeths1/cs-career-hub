@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { fetchNotificationSettings, saveNotificationSettings } from "@/lib/data";
 import type { DigestFrequency, NotificationSettings } from "@/lib/types";
 
-/** Notification cadence preferences. Following/prioritizing companies lives in its own tab. */
+/** Email settings: the master switch, instant alerts and digest frequencies. Companies are managed in CompaniesTab. */
 export function NotificationSettingsTab({ userId }: { userId: string }) {
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,8 +50,9 @@ export function NotificationSettingsTab({ userId }: { userId: string }) {
     }
   }
 
+  const emailOn = !!settings?.email_enabled;
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-6">
+    <div className="grid min-w-0 grid-cols-1 gap-4">
       {loadError ? (
         <div role="alert" className="grid gap-2 text-sm text-red-600">
           <p>Could not load notification settings: {loadError}</p>
@@ -59,98 +60,135 @@ export function NotificationSettingsTab({ userId }: { userId: string }) {
         </div>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Notification preferences</CardTitle>
-          <CardDescription>
-            Control how often you hear about new roles, by category. Follow or prioritize companies in the Companies tab.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          {loading || !settings ? (
-            <p role="status" className="text-sm text-muted-foreground">Loading preferences…</p>
-          ) : (
-            <fieldset disabled={saving} className="grid gap-4">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  checked={settings.email_enabled}
-                  onChange={(event) => updateSettings({ email_enabled: event.target.checked })}
-                  type="checkbox"
-                />
-                Email me about new roles
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
+      {loading || !settings ? (
+        <Card className="p-5"><p role="status" className="text-sm text-muted-foreground">Loading email settings…</p></Card>
+      ) : (
+        <fieldset disabled={saving} className="grid min-w-0 gap-4">
+          {/* Master switch */}
+          <Card className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+            <div>
+              <h2 className="text-lg font-semibold">Email alerts</h2>
+              <p className="mt-0.5 text-[13px] text-muted-foreground">Turns all job emails on or off</p>
+            </div>
+            <Switch label="Email me about new roles" checked={settings.email_enabled} onChange={(email_enabled) => updateSettings({ email_enabled })} />
+          </Card>
+
+          <Card className={emailOn ? "" : "opacity-50"}>
+            <CardHeader className="pb-3">
+              <CardTitle>When we email you</CardTitle>
+              <CardDescription>A digest bundles anything not already sent as an instant alert.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-0">
+              <div className="flex items-center justify-between gap-4 border-t py-3.5">
+                <div>
+                  <p className="text-sm font-semibold">Instant alerts</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Email me right away when a company on my instant list posts</p>
+                </div>
+                <Switch
                   checked={settings.instant_priority_alerts}
-                  disabled={!settings.email_enabled}
-                  onChange={(event) => updateSettings({ instant_priority_alerts: event.target.checked })}
-                  type="checkbox"
+                  disabled={!emailOn}
+                  label="Instant alerts"
+                  onChange={(instant_priority_alerts) => updateSettings({ instant_priority_alerts })}
                 />
-                Send an instant email as soon as a priority company posts
-              </label>
+              </div>
               <DigestFrequencyField
-                disabled={!settings.email_enabled}
-                label="Priority companies (when not sent instantly)"
+                disabled={!emailOn}
+                hint="Used when instant alerts are off"
+                label="Instant-list companies"
                 onChange={(digest_frequency) => updateSettings({ digest_frequency })}
                 value={settings.digest_frequency}
               />
               <DigestFrequencyField
-                disabled={!settings.email_enabled}
+                disabled={!emailOn}
                 label="Companies you follow"
                 onChange={(followed_digest_frequency) => updateSettings({ followed_digest_frequency })}
                 value={settings.followed_digest_frequency}
               />
               <DigestFrequencyField
-                disabled={!settings.email_enabled}
-                label="New jobs matching your target roles"
+                disabled={!emailOn}
+                hint="Uses the target roles in Job preferences"
+                label="New jobs matching your roles"
                 onChange={(target_role_digest_frequency) => updateSettings({ target_role_digest_frequency })}
                 value={settings.target_role_digest_frequency}
               />
-              <p className="text-xs text-muted-foreground">
-                Target roles come from your Profile. A digest bundles anything not already sent as an instant alert.
-              </p>
-              <div className="flex items-center gap-3">
-                <Button disabled={saving} onClick={savePreferences}>
-                  {saving ? "Saving…" : "Save preferences"}
-                </Button>
-                {saveStatus ? (
-                  <span className={`text-sm ${saveStatus.isError ? "text-red-600" : "text-muted-foreground"}`}>
-                    {saveStatus.text}
-                  </span>
-                ) : null}
-              </div>
-            </fieldset>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+
+          <div className="flex items-center gap-3">
+            <Button disabled={saving} onClick={savePreferences}>
+              {saving ? "Saving…" : "Save email settings"}
+            </Button>
+            {saveStatus ? (
+              <span className={`text-sm ${saveStatus.isError ? "text-red-600" : "text-muted-foreground"}`}>
+                {saveStatus.text}
+              </span>
+            ) : null}
+          </div>
+        </fieldset>
+      )}
     </div>
   );
 }
 
+/** On/off switch. */
+function Switch({ label, checked, disabled = false, onChange }: {
+  label: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      aria-checked={checked}
+      aria-label={label}
+      className={`relative h-[26px] w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed ${checked ? "bg-primary" : "bg-input"}`}
+      disabled={disabled}
+      role="switch"
+      type="button"
+      onClick={() => onChange(!checked)}
+    >
+      <span className={`absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-sm transition-[left] ${checked ? "left-[21px]" : "left-[3px]"}`} />
+    </button>
+  );
+}
+
+const FREQUENCIES: { value: DigestFrequency; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "off", label: "Off" },
+];
+
 function DigestFrequencyField({
   label,
+  hint,
   value,
   disabled,
   onChange,
 }: {
   label: string;
+  hint?: string;
   value: DigestFrequency;
   disabled: boolean;
   onChange: (value: DigestFrequency) => void;
 }) {
   return (
-    <label className="grid gap-2 text-sm font-medium">
-      {label}
-      <select
-        className="h-10 w-48 rounded-md border bg-card px-3 text-sm"
-        disabled={disabled}
-        value={value}
-        onChange={(event) => onChange(event.target.value as DigestFrequency)}
-      >
-        <option value="daily">Daily</option>
-        <option value="weekly">Weekly</option>
-        <option value="off">Off</option>
-      </select>
-    </label>
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t py-3.5">
+      <div>
+        <p className="text-sm font-semibold">{label}</p>
+        {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
+      </div>
+      <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg bg-muted p-1">
+        {FREQUENCIES.map((option) => (
+          <button
+            aria-checked={value === option.value}
+            className={`rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${value === option.value ? "bg-card font-semibold text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            disabled={disabled}
+            key={option.value}
+            role="radio"
+            type="button"
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

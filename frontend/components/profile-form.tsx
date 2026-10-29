@@ -78,7 +78,7 @@ export function ProfileForm({ userId, onSaved, resumeDraft }: { userId: string; 
       };
       await saveProfile(userId, profile);
       onSaved?.({ id: userId, ...profile });
-      setStatus({ text: "Profile saved.", isError: false });
+      setStatus({ text: "Preferences saved.", isError: false });
     } catch (error) {
       setStatus({ text: (error as Error).message, isError: true });
     }
@@ -87,8 +87,20 @@ export function ProfileForm({ userId, onSaved, resumeDraft }: { userId: string; 
   return (
     <form className="grid gap-4" onSubmit={handleSubmit(onSubmit)}>
       {profileLoading && <p role="status" className="text-sm text-muted-foreground">Loading profile…</p>}
-      {resumeDraft && <p role="status" className="text-sm text-muted-foreground">Resume suggestions filled below. Check them, complete your preferences, then save your profile.</p>}
-      <fieldset disabled={profileLoading || isSubmitting} className="grid min-w-0 gap-4">
+      {resumeDraft && <p role="status" className="text-sm text-muted-foreground">Resume suggestions filled in below. Check them, then save.</p>}
+      <fieldset disabled={profileLoading || isSubmitting} className="grid min-w-0 gap-4 sm:grid-cols-2">
+      <div className="grid gap-1.5 sm:col-span-2">
+        <Field label="Target roles" error={errors.roles?.message}>
+          <Input aria-describedby="target-roles-help" placeholder="Software engineering, frontend, data" {...register("roles")} />
+        </Field>
+        <p id="target-roles-help" className="text-xs text-muted-foreground">Separate roles with commas, up to 10. Saved roles personalize your For you jobs.</p>
+      </div>
+      <Field label="Preferred location" error={errors.location?.message}>
+        <Input placeholder="Raleigh, NC or Remote" {...register("location")} />
+      </Field>
+      <Field label="Graduation year (optional)" error={errors.gradYear?.message}>
+        <Input inputMode="numeric" placeholder="2027" {...register("gradYear")} />
+      </Field>
       <Field label="Name" error={errors.name?.message}>
         <Input {...register("name")} />
       </Field>
@@ -98,20 +110,10 @@ export function ProfileForm({ userId, onSaved, resumeDraft }: { userId: string; 
       <Field label="School (optional)" error={errors.school?.message}>
         <Input {...register("school")} />
       </Field>
-      <Field label="Graduation year (optional)" error={errors.gradYear?.message}>
-        <Input inputMode="numeric" placeholder="2027" {...register("gradYear")} />
-      </Field>
-      <Field label="Preferred location" error={errors.location?.message}>
-        <Input placeholder="Raleigh, NC or Remote" {...register("location")} />
-      </Field>
-      <Field label="Target roles" error={errors.roles?.message}>
-        <Input aria-describedby="target-roles-help" placeholder="Software engineering, frontend, data" {...register("roles")} />
-      </Field>
-      <p id="target-roles-help" className="text-xs text-muted-foreground">Separate roles with commas. Saved roles personalize your For you jobs.</p>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 sm:col-span-2">
         <Button disabled={isSubmitting} type="submit">
           <Save className="h-4 w-4" aria-hidden="true" />
-          {isSubmitting ? "Saving…" : "Save profile"}
+          {isSubmitting ? "Saving…" : "Save preferences"}
         </Button>
         {status ? (
           <span className={`text-sm ${status.isError ? "text-red-600" : "text-muted-foreground"}`}>

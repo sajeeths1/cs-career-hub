@@ -14,8 +14,7 @@ type NavSection = {
 };
 
 /**
- * The five sidebar sections from the redesign. Personalization still holds several of the
- * old tabs; its small sub-tabs go away once that screen is rebuilt.
+ * The five sidebar sections from the redesign.
  */
 export const NAV_SECTIONS: NavSection[] = [
   { key: "dashboard", label: "Dashboard", icon: LayoutGrid, tabs: [{ value: "dashboard", label: "Dashboard" }] },
@@ -27,7 +26,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { key: "skills", label: "Skills", icon: Target, tabs: [{ value: "skills", label: "Skills" }] },
   {
     key: "personalization", label: "Personalization", hint: "Preferences & notifications", icon: SlidersHorizontal,
-    tabs: [{ value: "profile", label: "Profile" }, { value: "companies", label: "Companies" }, { value: "settings", label: "Notifications" }],
+    tabs: [{ value: "profile", label: "Personalization" }],
   },
 ];
 
@@ -108,30 +107,5 @@ export function MobileNav({ tab, onChange }: { tab: string; onChange: (tab: stri
         </button>
       ))}
     </nav>
-  );
-}
-
-/** Sub-tabs for sections that still group several old tabs (Personalization). */
-export function SectionTabs({ tab, onChange }: { tab: string; onChange: (tab: string) => void }) {
-  const section = sectionForTab(tab);
-  if (section.tabs.length < 2) return null;
-  return (
-    <div role="tablist" aria-label={section.label} className="flex gap-1 border-b">
-      {section.tabs.map((t) => (
-        <button
-          aria-selected={t.value === tab}
-          className={cn(
-            "-mb-px min-h-11 border-b-2 px-3 text-sm font-medium transition-colors",
-            t.value === tab ? "border-primary font-semibold text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
-          )}
-          key={t.value}
-          role="tab"
-          type="button"
-          onClick={() => onChange(t.value)}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
   );
 }

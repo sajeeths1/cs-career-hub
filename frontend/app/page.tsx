@@ -7,28 +7,19 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { AuthScreen } from "@/components/auth-screen";
-import { ProfileForm } from "@/components/profile-form";
 import { SkillDevelopment } from "@/components/skill-development";
 import { ResumeUpload } from "@/components/resume-upload";
 import { NotificationBell } from "@/components/notification-bell";
-import { NotificationSettingsTab } from "@/components/notification-settings";
-import { CompaniesTab } from "@/components/companies";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { DashboardView } from "@/components/dashboard-view";
-import { MobileNav, SectionTabs, Sidebar } from "@/components/sidebar";
+import { PersonalizationView } from "@/components/personalization-view";
+import { MobileNav, Sidebar } from "@/components/sidebar";
 import { JobsView } from "@/components/jobs/jobs-view";
 import { TrackerView, type TrackerLayout } from "@/components/tracker/tracker-view";
 import { CenteredText, SetupMessage } from "@/components/ui/empty-states";
 import { type JobView, type WorkModeFilter } from "@/lib/filters";
 import { normalizeStatus } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
   fetchApplications,
@@ -330,7 +321,6 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
           <Tabs className="space-y-5" defaultValue="dashboard" value={tab} onValueChange={setTab}>
             <MobileNav tab={tab} onChange={setTab} />
-            <SectionTabs tab={tab} onChange={setTab} />
 
             {/* ---------------- Dashboard ---------------- */}
             <TabsContent value="dashboard" className="space-y-6">
@@ -420,32 +410,19 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             </TabsContent>
 
             {/* ---------------- Companies ---------------- */}
-            <TabsContent value="companies">
-              <CompaniesTab userId={userId} />
-            </TabsContent>
-
-            {/* ---------------- Profile ---------------- */}
-            <TabsContent value="profile" className="grid gap-6 xl:grid-cols-[1fr_360px]">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Your profile</CardTitle>
-                  <CardDescription>Saved to your account in Supabase.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ProfileForm userId={userId} resumeDraft={resumeDraft} onSaved={(saved) => {
-                    setResumeDraft(null);
-                    profileRequest.current++;
-                    setProfile(saved); setProfileLoading(false); setProfileError(null);
-                    resetJobSelection();
-                  }} />
-                </CardContent>
-              </Card>
-              <ResumeUpload compact userId={userId} result={resumeResult} onResult={setResumeResult} onProfileDraft={fillProfileFromResume} />
-            </TabsContent>
-
-            {/* ---------------- Settings ---------------- */}
-            <TabsContent value="settings">
-              <NotificationSettingsTab userId={userId} />
+            {/* ---------------- Personalization ---------------- */}
+            <TabsContent value="profile">
+              <PersonalizationView
+                userId={userId}
+                resumeDraft={resumeDraft}
+                onGoToSkills={() => setTab("skills")}
+                onProfileSaved={(saved) => {
+                  setResumeDraft(null);
+                  profileRequest.current++;
+                  setProfile(saved); setProfileLoading(false); setProfileError(null);
+                  resetJobSelection();
+                }}
+              />
             </TabsContent>
           </Tabs>
         </div>

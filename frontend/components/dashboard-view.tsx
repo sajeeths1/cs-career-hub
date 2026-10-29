@@ -98,7 +98,7 @@ export function DashboardView({
               {followedJobs.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   {followedCount === 0 ? "Follow companies from a job's details or " : "No open jobs from them right now. Manage them in "}
-                  <button className="font-medium text-primary hover:underline" type="button" onClick={() => onGoTo("companies")}>
+                  <button className="font-medium text-primary hover:underline" type="button" onClick={() => onGoTo("profile")}>
                     Personalization
                   </button>.
                 </p>
