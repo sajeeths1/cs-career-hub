@@ -44,7 +44,7 @@ export function TabsList({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("inline-flex rounded-md border bg-muted p-1", className)}
+      className={cn("inline-flex gap-1 border-b", className)}
       role="tablist"
       {...props}
     />
@@ -66,8 +66,8 @@ export function TabsTrigger({
   return (
     <button
       className={cn(
-        "rounded px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground",
-        selected && "bg-card text-foreground shadow-sm",
+        "-mb-px min-h-11 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground",
+        selected && "border-primary font-semibold text-primary",
         className,
       )}
       role="tab"

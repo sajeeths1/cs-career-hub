@@ -3,17 +3,18 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 20% 98%;
-  --foreground: 222 47% 11%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --primary: 214 34% 22%;
-  --primary-foreground: 210 40% 98%;
-  --muted: 214 32% 94%;
-  --muted-foreground: 215 16% 47%;
-  --border: 214 32% 89%;
-  --input: 214 32% 91%;
-  --ring: 214 34% 42%;
+  /* Redesign palette (matches the Claude Design mockup) */
+  --background: 220 20% 97%; /* #F6F7F9 page background */
+  --foreground: 224 22% 10%; /* #14171F main text */
+  --card: 0 0% 100%; /* white cards */
+  --card-foreground: 224 22% 10%;
+  --primary: 220 76% 48%; /* #1E5BD8 blue for buttons and links */
+  --primary-foreground: 0 0% 100%;
+  --muted: 214 26% 95%; /* #EEF1F5 light gray fills */
+  --muted-foreground: 217 11% 40%; /* #5B6472 secondary text */
+  --border: 214 14% 90%; /* #E3E6EA card borders */
+  --input: 213 15% 86%; /* #D5DAE0 input borders */
+  --ring: 220 76% 48%;
 }
 
 * {
@@ -22,6 +23,7 @@
 
 body {
   min-height: 100vh;
+  font-family: var(--font-inter), system-ui, sans-serif;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
 }
