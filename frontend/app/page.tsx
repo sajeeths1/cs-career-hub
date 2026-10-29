@@ -42,6 +42,7 @@ import {
 } from "@/lib/data";
 import { navItems } from "@/lib/mock-data";
 import { parseTargetRoles } from "@/lib/job-personalization";
+import { matchesPostedDate, POSTED_DATE_FILTERS, type PostedDateFilter } from "@/lib/job-filters";
 import { supabase } from "@/lib/supabase";
 import {
   TRACKER_COLUMNS,
@@ -106,9 +107,11 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const fillProfileFromResume = (draft: ResumeDraft) => { setResumeDraft(draft); setTab("profile"); };
   const [search, setSearch] = useState("");
   const [workMode, setWorkMode] = useState<WorkModeFilter>("all");
+  const [jobPostedDate, setJobPostedDate] = useState<PostedDateFilter>("any");
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [trackerSearch, setTrackerSearch] = useState("");
   const [trackerWorkMode, setTrackerWorkMode] = useState<WorkModeFilter>("all");
+  const [trackerPostedDate, setTrackerPostedDate] = useState<PostedDateFilter>("any");
   const [trackerStatus, setTrackerStatus] = useState("all");
   const [trackerSort, setTrackerSort] = useState("recent");
   const [busyJobId, setBusyJobId] = useState<number | null>(null);
@@ -248,11 +251,12 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     const term = search.trim().toLowerCase();
     return viewJobs.filter((job) => {
       if (workMode !== "all" && job.work_mode !== workMode) return false;
+      if (!matchesPostedDate(job.posted_at, jobPostedDate)) return false;
       if (!term) return true;
       const haystack = `${job.title} ${job.companies?.name ?? ""} ${job.location ?? ""}`;
       return haystack.toLowerCase().includes(term);
     });
-  }, [viewJobs, search, workMode]);
+  }, [viewJobs, search, workMode, jobPostedDate]);
 
   const selectedJob =
     (directJob?.id === selectedJobId ? directJob : null) ??
@@ -266,6 +270,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     return rows.filter((app) => {
       if (view === "applications" && trackerStatus !== "all" && normalizeStatus(app.status) !== trackerStatus) return false;
       if (trackerWorkMode !== "all" && app.jobs?.work_mode !== trackerWorkMode) return false;
+      if (!matchesPostedDate(app.jobs?.posted_at ?? null, trackerPostedDate)) return false;
       const job = app.jobs;
       return !term || `${job?.title ?? ""} ${job?.companies?.name ?? ""} ${job?.location ?? ""}`.toLowerCase().includes(term);
     }).sort((a, b) => trackerSort === "title"
@@ -521,6 +526,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                       </Button>
                     ))}
                   </div>
+                  <div className="flex flex-wrap items-end gap-3 pt-2">
+                    <label className="grid gap-1 text-xs font-medium">
+                      Date posted
+                      <select aria-label="Filter jobs by date posted" className="h-10 rounded-md border bg-card px-3 text-sm" value={jobPostedDate} onChange={(event) => { resetJobSelection(); setJobPostedDate(event.target.value as PostedDateFilter); }}>
+                        {POSTED_DATE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <UnavailableMatchFilter id="jobs" />
+                    <Button size="sm" variant="ghost" onClick={() => { resetJobSelection(); setSearch(""); setWorkMode("all"); setJobPostedDate("any"); }}>Clear filters</Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="grid max-h-[70vh] gap-3 overflow-y-auto">
                   {viewLoading && <p role="status" className="text-sm text-muted-foreground">Loading jobs…</p>}
@@ -584,6 +599,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                   onSearch={setTrackerSearch}
                   workMode={trackerWorkMode}
                   onWorkMode={setTrackerWorkMode}
+                  postedDate={trackerPostedDate}
+                  onPostedDate={setTrackerPostedDate}
                   status={trackerStatus}
                   onStatus={setTrackerStatus}
                   sort={trackerSort}
@@ -767,9 +784,21 @@ function JobDetail({
   );
 }
 
+function UnavailableMatchFilter({ id }: { id: string }) {
+  return (
+    <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+      Match score
+      <select aria-label="Filter by match score (not available yet)" aria-describedby={`${id}-match-score-help`} className="h-10 rounded-md border bg-muted px-3 text-sm" disabled value="unavailable">
+        <option value="unavailable">Scores not available yet</option>
+      </select>
+      <span id={`${id}-match-score-help`} className="sr-only">Match scoring has not been implemented for this project yet.</span>
+    </label>
+  );
+}
+
 function TrackerView({
   title, description, rows, total, view, search, onSearch, workMode, onWorkMode,
-  status, onStatus, sort, onSort, busyJobId, onChange, onOpen, onRemove,
+  postedDate, onPostedDate, status, onStatus, sort, onSort, busyJobId, onChange, onOpen, onRemove,
 }: {
   title: string;
   description: string;
@@ -780,6 +809,8 @@ function TrackerView({
   onSearch: (value: string) => void;
   workMode: WorkModeFilter;
   onWorkMode: (value: WorkModeFilter) => void;
+  postedDate: PostedDateFilter;
+  onPostedDate: (value: PostedDateFilter) => void;
   status: string;
   onStatus: (value: string) => void;
   sort: string;
@@ -818,7 +849,14 @@ function TrackerView({
               {WORK_MODE_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}
             </select>
           </label>
-          <Button variant="ghost" size="sm" onClick={() => { onSearch(""); onStatus("all"); onWorkMode("all"); }}>Clear filters</Button>
+          <label className="grid gap-1 text-xs font-medium">
+            Date posted
+            <select aria-label="Filter tracked jobs by date posted" className="h-10 rounded-md border bg-card px-3 text-sm" value={postedDate} onChange={(event) => onPostedDate(event.target.value as PostedDateFilter)}>
+              {POSTED_DATE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <UnavailableMatchFilter id={view} />
+          <Button variant="ghost" size="sm" onClick={() => { onSearch(""); onStatus("all"); onWorkMode("all"); onPostedDate("any"); }}>Clear filters</Button>
         </CardContent>
       </Card>
       <div className="flex items-center justify-between gap-3 text-sm">
