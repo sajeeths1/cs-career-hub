@@ -27,7 +27,7 @@ export type Application = {
   job_id: number;
   status: ApplicationStatus;
   updated_at: string;
-  jobs: Pick<Job, "id" | "title" | "url" | "location" | "companies"> | null;
+  jobs: Pick<Job, "id" | "title" | "url" | "location" | "posted_at" | "work_mode" | "companies"> | null;
 };
 
 export type Profile = {
@@ -40,7 +40,7 @@ export type Profile = {
   grad_year?: number | null;
 };
 
-/** Tracker columns, in order. not_applied is treated like "saved" in the UI. */
+/** Visible tracker statuses, in order. Legacy not_applied rows appear as Saved. */
 export const TRACKER_COLUMNS: { status: ApplicationStatus; label: string }[] = [
   { status: "saved", label: "Saved" },
   { status: "applied", label: "Applied" },

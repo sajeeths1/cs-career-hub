@@ -3,6 +3,7 @@ import {
   Building2,
   CheckCircle2,
   ClipboardList,
+  Bookmark,
   LayoutDashboard,
   Settings,
   Target,
@@ -12,6 +13,7 @@ import {
 export const navItems = [
   { label: "Dashboard", icon: LayoutDashboard },
   { label: "Jobs", icon: Briefcase },
+  { label: "Saved", icon: Bookmark },
   { label: "Applications", icon: ClipboardList },
   { label: "Skills", icon: Target },
   { label: "Companies", icon: Building2 },

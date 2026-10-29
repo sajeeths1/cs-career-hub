@@ -54,7 +54,7 @@ export async function fetchJob(jobId: number): Promise<Job | null> {
 export async function fetchApplications(): Promise<Application[]> {
   const { data, error } = await db()
     .from("applications")
-    .select("id, job_id, status, updated_at, jobs(id, title, url, location, companies(name))")
+    .select("id, job_id, status, updated_at, jobs(id, title, url, location, posted_at, work_mode, companies(name))")
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as unknown as Application[];
