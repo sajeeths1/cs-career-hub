@@ -100,6 +100,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [trackerStatus, setTrackerStatus] = useState("all");
   const [trackerSort, setTrackerSort] = useState("recent");
   const [trackerLayout, setTrackerLayout] = useState<TrackerLayout>("board");
+  const [skillsVersion, setSkillsVersion] = useState(0);
   const [busyJobId, setBusyJobId] = useState<number | null>(null);
   const [jobView, setJobView] = useState<JobView>("for_you");
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -251,11 +252,14 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     applications.filter((app) => normalizeStatus(app.status) === status).length;
 
   const metrics = [
-    { label: "Open CS jobs", value: jobs.length, note: "From company job boards" },
-    { label: "Saved", value: countByStatus("saved"), note: "In your tracker" },
-    { label: "Applied", value: countByStatus("applied"), note: "Waiting to hear back" },
-    { label: "Interviewing", value: countByStatus("interviewing"), note: "Keep preparing" },
+    { label: "Open CS jobs", value: jobs.length, note: "From company job boards", tab: "jobs" },
+    { label: "Saved", value: countByStatus("saved"), note: "In your tracker", tab: "tracker" },
+    { label: "Applied", value: countByStatus("applied"), note: "Waiting to hear back", tab: "tracker" },
+    { label: "Interviewing", value: countByStatus("interviewing"), note: "Keep preparing", tab: "tracker" },
   ];
+  const followedJobs = jobs
+    .filter((job) => followedCompanyIds.includes(job.company_id))
+    .sort((a, b) => new Date(b.posted_at ?? 0).getTime() - new Date(a.posted_at ?? 0).getTime());
 
   function resetJobSelection() {
     jobOpenRequest.current++;
@@ -331,6 +335,10 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             {/* ---------------- Dashboard ---------------- */}
             <TabsContent value="dashboard" className="space-y-6">
               <DashboardView
+                firstName={profile?.full_name?.trim().split(/\s+/)[0] ?? ""}
+                followedJobs={followedJobs}
+                followedCount={followedCompanyIds.length}
+                onGoTo={setTab}
                 metrics={metrics}
                 loading={loading}
                 dashboardPersonalized={dashboardPersonalized}
@@ -342,10 +350,6 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                 onViewMore={() => { changeJobView(dashboardPersonalized ? "for_you" : "all"); setTab("jobs"); }}
                 onOpenJob={(jobId) => void openJob(jobId, dashboardPersonalized ? "for_you" : "all")}
                 onSave={(jobId) => track(jobId, "saved")}
-                userId={userId}
-                resumeResult={resumeResult}
-                onResumeResult={setResumeResult}
-                onProfileDraft={fillProfileFromResume}
               />
             </TabsContent>
 
@@ -408,8 +412,11 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               />
             </TabsContent>
 
-            <TabsContent value="skills">
-              <SkillDevelopment userId={userId} jobs={jobs} jobsLoading={loading} />
+            <TabsContent value="skills" className="grid min-w-0 gap-6">
+              <ResumeUpload userId={userId} result={resumeResult} onResult={setResumeResult} onProfileDraft={fillProfileFromResume}
+                onSkillsSaved={() => setSkillsVersion((n) => n + 1)} />
+              {/* key changes after resume skills are saved, so the skills list reloads */}
+              <SkillDevelopment key={skillsVersion} userId={userId} jobs={jobs} jobsLoading={loading} />
             </TabsContent>
 
             {/* ---------------- Companies ---------------- */}

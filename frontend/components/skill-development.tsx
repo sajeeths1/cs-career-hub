@@ -78,10 +78,10 @@ export function SkillDevelopment({ userId, jobs, jobsLoading }: {
         {data && <fieldset disabled={busy || loading} className="grid min-w-0 gap-3">
           <legend className="mb-3 text-sm font-semibold">My skills · {data.knownIds.length} selected</legend>
           <Input aria-label="Find a skill" placeholder="Find a skill" value={skillSearch} onChange={(event) => setSkillSearch(event.target.value)} />
-          <div className="flex flex-wrap gap-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3 lg:grid-cols-4">
             {data.skills.filter((skill) => skill.name.toLowerCase().includes(skillSearch.trim().toLowerCase())).map((skill) =>
-              <label key={skill.id} className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={data.knownIds.includes(skill.id)} onChange={(event) => toggleSkill(skill, event.target.checked)} />{skill.name}
+              <label key={skill.id} className="flex min-h-9 items-center gap-2.5 text-sm">
+                <input className="h-4 w-4 accent-primary" type="checkbox" checked={data.knownIds.includes(skill.id)} onChange={(event) => toggleSkill(skill, event.target.checked)} />{skill.name}
               </label>)}
           </div>
           {!data.skills.some((skill) => skill.name.toLowerCase().includes(skillSearch.trim().toLowerCase())) &&
@@ -168,7 +168,7 @@ export function SkillDevelopment({ userId, jobs, jobsLoading }: {
         </CardHeader>
         <CardContent className="grid gap-4">
           <label className="flex flex-wrap items-center gap-2 text-sm">Filter goals
-            <select className="rounded-md border bg-background p-2" value={goalFilter} onChange={(event) => setGoalFilter(event.target.value)}>
+            <select className="h-9 rounded-lg border border-input bg-card px-2 text-sm" value={goalFilter} onChange={(event) => setGoalFilter(event.target.value)}>
               <option value="all">All goals</option><option value="planned">Planned</option><option value="in_progress">In progress</option><option value="completed">Completed</option>
             </select>
           </label>
@@ -182,7 +182,7 @@ export function SkillDevelopment({ userId, jobs, jobsLoading }: {
               <ResourceLinks skillId={skill.id} resources={data.resources} />
               <div className="flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-2 text-sm">Progress
-                  <select aria-label={`Progress for ${skill.name}`} className="rounded-md border bg-background p-2" value={goal.status} disabled={busy}
+                  <select aria-label={`Progress for ${skill.name}`} className="h-9 rounded-lg border border-input bg-card px-2 text-sm" value={goal.status} disabled={busy}
                     onChange={(event) => goalStatus(goal.skill_id, event.target.value as LearningGoal["status"])}>
                     <option value="planned">Planned</option><option value="in_progress">In progress</option><option value="completed">Completed</option>
                   </select>

@@ -15,9 +15,11 @@ type ResumeUploadProps = {
   result: ParsedResume | null;
   onResult: (result: ParsedResume | null) => void;
   onProfileDraft: (draft: ResumeDraft) => void;
+  /** Called after skills from the resume are saved, so a skills list on the same page can reload. */
+  onSkillsSaved?: () => void;
 };
 
-export function ResumeUpload({ userId, compact = false, result, onResult, onProfileDraft }: ResumeUploadProps) {
+export function ResumeUpload({ userId, compact = false, result, onResult, onProfileDraft, onSkillsSaved }: ResumeUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,7 +66,8 @@ export function ResumeUpload({ userId, compact = false, result, onResult, onProf
     try {
       await addResumeSkills(userId, selected);
       setSelected([]);
-      setNotice("Selected skills added. They will be included when you open Skills.");
+      setNotice("Selected skills added to My skills.");
+      onSkillsSaved?.();
     } catch (err) { setError((err as Error).message); }
     finally { setSaving(false); }
   }
