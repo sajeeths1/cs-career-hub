@@ -15,11 +15,11 @@ import { NotificationBell } from "@/components/notification-bell";
 import { NotificationSettingsTab } from "@/components/notification-settings";
 import { CompaniesTab } from "@/components/companies";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
-import { JobDetail } from "@/components/jobs/job-detail";
-import { JobRow } from "@/components/jobs/job-row";
+import { DashboardView } from "@/components/dashboard-view";
+import { JobsView } from "@/components/jobs/jobs-view";
 import { TrackerView } from "@/components/tracker/tracker-view";
-import { CenteredText, EmptyText, SetupMessage } from "@/components/ui/empty-states";
-import { WORK_MODE_FILTERS, type JobView, type WorkModeFilter } from "@/lib/filters";
+import { CenteredText, SetupMessage } from "@/components/ui/empty-states";
+import { type JobView, type WorkModeFilter } from "@/lib/filters";
 import { normalizeStatus } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
@@ -410,133 +410,54 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
             {/* ---------------- Dashboard ---------------- */}
             <TabsContent value="dashboard" className="space-y-6">
-              <section>
-                <p className="text-sm font-medium text-muted-foreground">Student dashboard</p>
-                <h1 className="mt-1 text-3xl font-semibold tracking-tight">
-                  Find the next role worth applying to
-                </h1>
-              </section>
-
-              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {metrics.map((metric) => (
-                  <Card key={metric.label}>
-                    <CardContent className="p-5">
-                      <p className="text-sm text-muted-foreground">{metric.label}</p>
-                      <p className="mt-2 text-3xl font-semibold">{loading ? "–" : metric.value}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{metric.note}</p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </section>
-
-              <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
-                <Card>
-                  <CardHeader className="flex flex-row items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <CardTitle>{dashboardPersonalized ? "Jobs for you" : "Newest jobs"}</CardTitle>
-                      <CardDescription>{dashboardPersonalized
-                        ? `Based on your target roles: ${targetRoles.join(", ")}.`
-                        : "The latest open CS roles from company job boards. Add target roles in your profile to personalize this view."}</CardDescription>
-                    </div>
-                    <Button className="shrink-0" size="sm" variant="outline" onClick={() => { changeJobView(dashboardPersonalized ? "for_you" : "all"); setTab("jobs"); }}>
-                      View more
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="grid gap-3">
-                    {dashboardLoading ? <EmptyText text="Loading jobs…" /> : null}
-                    {!dashboardLoading && dashboardPersonalized && recommendationError && <p role="alert" className="text-sm text-red-600">Could not load personalized jobs. Open Jobs to retry or browse all jobs.</p>}
-                    {!dashboardLoading && !recommendationError && dashboardJobs.length === 0 ? (
-                      <EmptyText text={dashboardPersonalized ? "No open titles match your target roles yet. You can edit your profile or browse All jobs." : "No open jobs are available yet."} />
-                    ) : null}
-                    {!dashboardLoading && dashboardJobs.slice(0, 6).map((job) => (
-                      <JobRow
-                        job={job}
-                        key={job.id}
-                        status={statusByJob.get(job.id)}
-                        onOpen={() => void openJob(job.id, dashboardPersonalized ? "for_you" : "all")}
-                        onSave={() => track(job.id, "saved")}
-                      />
-                    ))}
-                  </CardContent>
-                </Card>
-                <div className="grid content-start gap-6">
-                  <ResumeUpload compact userId={userId} result={resumeResult} onResult={setResumeResult} onProfileDraft={fillProfileFromResume} />
-                </div>
-              </div>
+              <DashboardView
+                metrics={metrics}
+                loading={loading}
+                dashboardPersonalized={dashboardPersonalized}
+                targetRoles={targetRoles}
+                dashboardLoading={dashboardLoading}
+                recommendationError={recommendationError}
+                dashboardJobs={dashboardJobs}
+                statusByJob={statusByJob}
+                onViewMore={() => { changeJobView(dashboardPersonalized ? "for_you" : "all"); setTab("jobs"); }}
+                onOpenJob={(jobId) => void openJob(jobId, dashboardPersonalized ? "for_you" : "all")}
+                onSave={(jobId) => track(jobId, "saved")}
+                userId={userId}
+                resumeResult={resumeResult}
+                onResumeResult={setResumeResult}
+                onProfileDraft={fillProfileFromResume}
+              />
             </TabsContent>
 
             {/* ---------------- Jobs ---------------- */}
             <TabsContent value="jobs" className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
-              <Card>
-                <CardHeader>
-                  <CardTitle>{jobView === "for_you" ? "For you" : "All jobs"}</CardTitle>
-                  <CardDescription>
-                    {viewLoading ? "Loading…" : `${filteredJobs.length} of ${viewJobs.length} loaded jobs · up to 300 newest results`}
-                  </CardDescription>
-                  <div role="group" aria-label="Job view" className="flex flex-wrap gap-2 pt-2">
-                    <Button size="sm" aria-pressed={jobView === "for_you"} variant={jobView === "for_you" ? "default" : "outline"} onClick={() => changeJobView("for_you")}>For you</Button>
-                    <Button size="sm" aria-pressed={jobView === "all"} variant={jobView === "all" ? "default" : "outline"} onClick={() => changeJobView("all")}>All jobs</Button>
-                  </div>
-                  {jobView === "for_you" && targetRoles.length > 0 && <p className="break-words text-sm text-muted-foreground">Based on saved roles: {targetRoles.join(", ")}. Matches use job-title keywords from your saved roles.</p>}
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    {WORK_MODE_FILTERS.map((filter) => (
-                      <Button
-                        key={filter.value}
-                        size="sm"
-                        variant={workMode === filter.value ? "default" : "outline"}
-                        aria-pressed={workMode === filter.value}
-                        onClick={() => { resetJobSelection(); setWorkMode(filter.value); }}
-                      >
-                        {filter.label}
-                      </Button>
-                    ))}
-                  </div>
-                </CardHeader>
-                <CardContent className="grid max-h-[70vh] gap-3 overflow-y-auto">
-                  {viewLoading && <p role="status" className="text-sm text-muted-foreground">Loading jobs…</p>}
-                  {jobView === "for_you" && !profileLoading && profileError && <div role="alert" className="grid gap-3 text-sm">
-                    <p>Could not load your target roles: {profileError}</p><Button variant="outline" onClick={() => void loadProfile()}>Retry profile</Button>
-                  </div>}
-                  {jobView === "for_you" && !profileError && !targetRoles.length && <p className="text-sm text-muted-foreground">
-                    Showing all jobs. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => setTab("profile")}>Set target roles</button> to personalize this view.
-                  </p>}
-                  {jobView === "for_you" && !viewLoading && !profileError && targetRoles.length > 0 && recommendationError && <div role="alert" className="grid gap-3 text-sm">
-                    <p>Could not load personalized jobs: {recommendationError}</p><Button variant="outline" onClick={() => setRecommendationRefresh((n) => n + 1)}>Retry recommendations</Button>
-                  </div>}
-                  {!viewLoading && filteredJobs.length === 0 && (jobView === "all" || !targetRoles.length || (!profileError && !recommendationError)) ? (
-                    <EmptyText text={jobView === "for_you" && targetRoles.length > 0 ? "No jobs match your target roles and current filters. Try All jobs or update your profile." : "No jobs match your search and filters."} />
-                  ) : null}
-                  {!viewLoading && filteredJobs.map((job) => (
-                    <JobRow
-                      compact
-                      job={job}
-                      key={job.id}
-                      selected={selectedJob?.id === job.id}
-                      status={statusByJob.get(job.id)}
-                      onOpen={() => { resetJobSelection(); setSelectedJobId(job.id); }}
-                      onSave={() => track(job.id, "saved")}
-                    />
-                  ))}
-                </CardContent>
-              </Card>
-
-              {openingJob || jobOpenError ? <Card><CardContent className="p-5"><p role={jobOpenError ? "alert" : "status"} className="text-sm">{jobOpenError ?? "Loading job details…"}</p></CardContent></Card> : selectedJob && !viewLoading ? (
-                <JobDetail
-                  isFollowingCompany={followedCompanyIds.includes(selectedJob.company_id)}
-                  job={selectedJob}
-                  onFollowCompanyToggled={(companyId, following) => setFollowedCompanyIds((ids) =>
-                    following ? [...ids, companyId] : ids.filter((id) => id !== companyId))}
-                  status={statusByJob.get(selectedJob.id)}
-                  onTrack={(status) => track(selectedJob.id, status)}
-                  userId={userId}
-                />
-              ) : (
-                <Card>
-                  <CardContent className="p-5">
-                    <EmptyText text="Pick a job to see its details." />
-                  </CardContent>
-                </Card>
-              )}
+              <JobsView
+                jobView={jobView}
+                onChangeJobView={changeJobView}
+                viewLoading={viewLoading}
+                filteredJobs={filteredJobs}
+                viewJobsCount={viewJobs.length}
+                targetRoles={targetRoles}
+                workMode={workMode}
+                onWorkMode={(mode) => { resetJobSelection(); setWorkMode(mode); }}
+                profileLoading={profileLoading}
+                profileError={profileError}
+                onRetryProfile={() => void loadProfile()}
+                recommendationError={recommendationError}
+                onRetryRecommendations={() => setRecommendationRefresh((n) => n + 1)}
+                onSetTargetRoles={() => setTab("profile")}
+                selectedJob={selectedJob}
+                statusByJob={statusByJob}
+                onSelectJob={(jobId) => { resetJobSelection(); setSelectedJobId(jobId); }}
+                onSave={(jobId) => track(jobId, "saved")}
+                onTrack={(jobId, status) => track(jobId, status)}
+                openingJob={openingJob}
+                jobOpenError={jobOpenError}
+                followedCompanyIds={followedCompanyIds}
+                onFollowCompanyToggled={(companyId, following) => setFollowedCompanyIds((ids) =>
+                  following ? [...ids, companyId] : ids.filter((id) => id !== companyId))}
+                userId={userId}
+              />
             </TabsContent>
 
             {/* ---------------- Saved Jobs and Applications ---------------- */}
