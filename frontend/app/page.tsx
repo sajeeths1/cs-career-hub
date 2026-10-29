@@ -5,7 +5,6 @@ import type { Session } from "@supabase/supabase-js";
 import {
   LogOut,
   RefreshCw,
-  Search,
 } from "lucide-react";
 import { AuthScreen } from "@/components/auth-screen";
 import { ProfileForm } from "@/components/profile-form";
@@ -30,7 +29,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
   fetchApplications,
@@ -301,25 +299,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
       <Sidebar tab={tab} onChange={setTab} email={email} onSignOut={() => void supabase?.auth.signOut()} />
 
       <section className="min-w-0 flex-1">
-        <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur sm:px-6">
-          <div className="relative max-w-xl flex-1">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <Input
-              aria-label="Search jobs"
-              className="pl-9"
-              placeholder="Search jobs, companies, or locations"
-              value={search}
-              onChange={(event) => {
-                resetJobSelection();
-                if (!targetRoles.length || profileError) setJobView("all");
-                setSearch(event.target.value);
-                setTab("jobs");
-              }}
-            />
-          </div>
+        <header className="sticky top-0 z-10 flex h-16 items-center justify-end gap-3 border-b bg-background/95 px-4 backdrop-blur sm:px-6">
           <Button aria-label="Refresh" size="icon" variant="outline" onClick={() => {
             void loadAll(); void loadProfile(); void loadFollowedCompanies(); setRecommendationRefresh((n) => n + 1);
           }}>
@@ -370,8 +350,15 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             </TabsContent>
 
             {/* ---------------- Jobs ---------------- */}
-            <TabsContent value="jobs" className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
+            <TabsContent value="jobs" className="min-w-0">
               <JobsView
+                search={search}
+                onSearch={(value) => {
+                  resetJobSelection();
+                  if (!targetRoles.length || profileError) setJobView("all");
+                  setSearch(value);
+                }}
+                onClearFilters={() => { resetJobSelection(); setSearch(""); setWorkMode("all"); }}
                 jobView={jobView}
                 onChangeJobView={changeJobView}
                 viewLoading={viewLoading}
