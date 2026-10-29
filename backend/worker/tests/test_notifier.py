@@ -194,7 +194,7 @@ class EmailContentTests(unittest.TestCase):
 
     def test_digest_email_lists_jobs_and_flags_closing_soon(self):
         rows = [
-            {"kind": "new_posting", "jobs": {"id": 1, "title": "SWE Intern", "url": "x", "location": "NC"}, "companies": {"name": "Acme"}},
+            {"kind": "new_posting", "jobs": {"id": 1, "title": "SWE Intern", "url": "x", "location": "NC"}, "companies": {"name": "Acme", "logo_url": "https://logo.example.com/acme.png"}},
             {"kind": "closing_soon", "jobs": {"id": 2, "title": "Data Intern", "url": "x"}, "companies": {"name": "Beta"}},
         ]
         subject, body = digest_email("weekly", rows)
@@ -202,6 +202,24 @@ class EmailContentTests(unittest.TestCase):
         self.assertIn("SWE Intern", body)
         self.assertIn("Data Intern", body)
         self.assertIn("Closing soon", body)
+        self.assertIn("Acme", body)
+        self.assertIn('src="https://logo.example.com/acme.png"', body)
+        self.assertNotIn("Posted", body)  # digest rows skip the posted date, per the template
+        self.assertIn("subscribed to receiving notifications from CS Career Hub", body)
+
+    def test_digest_header_subject_verb_agreement(self):
+        one = [{"kind": "new_posting", "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}]
+        _, body = digest_email("weekly", one)
+        self.assertIn("1 Job That Matches Your Preferences", body)
+        two = one + [{"kind": "new_posting", "jobs": {"id": 2, "title": "Data Intern", "url": "x"}, "companies": {"name": "Beta"}}]
+        _, body = digest_email("weekly", two)
+        self.assertIn("2 Jobs That Match Your Preferences", body)
+
+    def test_new_job_email_includes_company_logo_when_available(self):
+        _, body = new_job_email("Acme", NEW_JOBS, logo_url="https://logo.example.com/acme.png")
+        self.assertIn('src="https://logo.example.com/acme.png"', body)
+        _, body_without_logo = new_job_email("Acme", NEW_JOBS)
+        self.assertNotIn("<img", body_without_logo)
         self.assertNotIn('<a href="x">Data Intern</a>', body)  # job titles are plain text, not links
         self.assertNotIn("<li>", body)  # no bullet points
         self.assertIn("View &amp; Apply", body)
@@ -353,6 +371,21 @@ class RunDigestTests(unittest.TestCase):
         self.assertIn("Data Intern", html)
         self.assertNotIn("ML Intern", html)
         self.assertEqual(client.rows["notifications"][2]["emailed_at"], None)
+
+    def test_user_with_no_settings_row_still_gets_a_digest_using_defaults(self):
+        # Regression test: a user who never opened Settings has no notification_settings
+        # row at all. The column defaults (digest_frequency="weekly") must still apply,
+        # not silently skip them because there's no row to match against.
+        client = FakeClient({
+            "notification_settings": [],
+            "notifications": [{"id": 1, "user_id": "u1", "source": "priority_company", "kind": "new_posting", "emailed_at": None,
+                                "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}],
+        }, emails={"u1": "student@example.com"})
+        with patch("notifier.send_email", return_value=True) as sent:
+            result = run_digest(client, "weekly", NOW)
+        sent.assert_called_once()
+        self.assertEqual(result, {"emailed_users": 1, "emailed_notifications": 1})
+        self.assertEqual(client.rows["notifications"][0]["emailed_at"], NOW.isoformat())
 
     def test_already_emailed_notifications_are_not_resent(self):
         client = FakeClient({

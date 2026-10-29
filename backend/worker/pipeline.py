@@ -196,6 +196,29 @@ def seed_companies(supabase) -> None:
     supabase.table("companies").upsert(rows, on_conflict="name").execute()
 
 
+def guess_logo_url(slug: str) -> str:
+    """A company's ATS slug is usually its name, e.g. "stripe" -> stripe.com.
+    Google's public, no-auth favicon service returns a generic placeholder
+    icon (not a broken deploy) for a wrong guess or a domain with no favicon."""
+    return f"https://www.google.com/s2/favicons?domain={slug}.com&sz=128"
+
+
+def backfill_company_logos(supabase) -> int:
+    """Any Greenhouse company without a stored logo yet, not just the starter
+    list, so companies added later (by the team or a future admin UI) also
+    get one without this file needing a per-company update."""
+    missing = (
+        supabase.table("companies").select("id, ats_slug")
+        .eq("ats_type", "greenhouse").is_("logo_url", "null").execute().data
+    )
+    updates = [{"id": row["id"], "logo_url": guess_logo_url(row["ats_slug"])} for row in missing if row.get("ats_slug")]
+    for row in updates:
+        # Always an update to an existing row; `id` is a GENERATED ALWAYS identity
+        # column, so upsert's INSERT clause would reject supplying it explicitly.
+        supabase.table("companies").update({"logo_url": row["logo_url"]}).eq("id", row["id"]).execute()
+    return len(updates)
+
+
 def collect(slug: str) -> list[dict]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
     response = requests.get(url, timeout=30)
@@ -255,10 +278,11 @@ def main():
     supabase = get_client()
     now = datetime.now(timezone.utc)
     seed_companies(supabase)
+    backfill_company_logos(supabase)
 
     companies = (
         supabase.table("companies")
-        .select("id, name, ats_slug")
+        .select("id, name, ats_slug, logo_url")
         .eq("ats_type", "greenhouse")
         .order("name")
         .execute()
@@ -282,8 +306,8 @@ def main():
         new_rows = save(supabase, rows, company["id"])
         closing_soon_jobs = find_closing_soon_jobs(supabase, company["id"], now)
         closed_count = close_old_jobs(supabase, company["id"], now)
-        notify_result = notify_new_jobs(supabase, company["id"], name, new_rows, now, kind="new_posting")
-        closing_notify_result = notify_new_jobs(supabase, company["id"], name, closing_soon_jobs, now, kind="closing_soon")
+        notify_result = notify_new_jobs(supabase, company["id"], name, new_rows, now, kind="new_posting", company_logo_url=company.get("logo_url"))
+        closing_notify_result = notify_new_jobs(supabase, company["id"], name, closing_soon_jobs, now, kind="closing_soon", company_logo_url=company.get("logo_url"))
         all_new_jobs += new_rows
         all_closing_soon_jobs += closing_soon_jobs
         totals["kept"] += len(rows)

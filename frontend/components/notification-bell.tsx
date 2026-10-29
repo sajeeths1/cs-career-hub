@@ -107,14 +107,23 @@ export function NotificationBell({ onOpenJob }: { onOpenJob: (jobId: number) => 
                 type="button"
                 onClick={() => void openNotification(row)}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">{row.jobs?.title ?? "A job that is no longer listed"}</p>
-                  <Badge className={`shrink-0 text-[10px] ${row.kind === "closing_soon" ? "border-amber-200 bg-amber-50 text-amber-700" : ""}`}>
-                    {SOURCE_LABELS[row.source]}
-                  </Badge>
+                <div className="flex items-start gap-2">
+                  {row.companies?.logo_url ? (
+                    <img
+                      alt=""
+                      className="mt-0.5 h-6 w-6 shrink-0 rounded object-contain"
+                      src={row.companies.logo_url}
+                    />
+                  ) : null}
+                  <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                    <p className="font-medium">{row.jobs?.title ?? "A job that is no longer listed"}</p>
+                    <Badge className={`shrink-0 text-[10px] ${row.kind === "closing_soon" ? "border-amber-200 bg-amber-50 text-amber-700" : ""}`}>
+                      {SOURCE_LABELS[row.source]}
+                    </Badge>
+                  </div>
                 </div>
                 <p className={`text-xs ${row.kind === "closing_soon" ? "font-semibold text-amber-700" : "text-muted-foreground"}`}>
-                  {KIND_LABELS[row.kind]} at {row.companies?.name ?? "this company"} · {formatRelative(row.created_at)}
+                  {row.companies?.name ?? "this company"} · {KIND_LABELS[row.kind]} · {formatRelative(row.created_at)}
                 </p>
               </button>
             ))}

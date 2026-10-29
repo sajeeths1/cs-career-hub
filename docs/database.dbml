@@ -17,6 +17,7 @@ Table companies {
   website text
   ats_type text [note: 'e.g. greenhouse']
   ats_slug text [note: 'company name on that job board, e.g. stripe']
+  logo_url text [note: 'Nullable; populated for starter companies via a public logo lookup']
 }
 
 Table jobs {

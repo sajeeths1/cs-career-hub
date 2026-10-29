@@ -122,34 +122,50 @@ def _manage_preferences_link() -> str:
 
 def _footer(company_name: str | None = None) -> str:
     manage = _manage_preferences_link()
-    if company_name:
-        message = f"You are receiving this message because you have notifications enabled for {company_name}. No longer interested? {manage}."
-    else:
-        message = f"You are receiving this message because you have notification preferences enabled on CS Career Hub. {manage}."
+    message = f"You are receiving this message because you have notifications enabled for {company_name}. No longer interested? {manage}."
+    return f'<p style="font-size:14px;color:#666;margin-top:32px;">{message}</p>'
+
+
+def _digest_footer() -> str:
+    manage = _manage_preferences_link()
+    message = f"You are receiving this message because you have subscribed to receiving notifications from CS Career Hub. No longer interested? {manage}."
     return f'<p style="font-size:14px;color:#666;margin-top:32px;">{message}</p>'
 
 
 _BUTTON_STYLE = (
     "display:inline-block;background-color:#25364b;color:#ffffff;"
-    "padding:14px 28px;border-radius:6px;text-decoration:none;"
-    "font-size:17px;font-weight:600;margin-top:10px;"
+    "padding:9px 18px;border-radius:6px;text-decoration:none;"
+    "font-size:14px;font-weight:600;margin-top:10px;"
 )
+_LOGO_STYLE = "height:{size}px;width:{size}px;border-radius:6px;vertical-align:middle;margin-right:{gap}px;object-fit:contain;"
 
 
 def _cta_button(job: dict) -> str:
     return f'<a href="{job_url(job)}" style="{_BUTTON_STYLE}">View &amp; Apply →</a>'
 
 
-def _job_block(job: dict, label: str | None = None, company_name: str | None = None) -> str:
+def _logo_img(company_name: str, logo_url: str | None, size: int = 40) -> str:
+    if not logo_url:
+        return ""
+    style = _LOGO_STYLE.format(size=size, gap=10 if size >= 32 else 8)
+    return f'<img src="{logo_url}" alt="{company_name} logo" style="{style}">'
+
+
+def _company_header(company_name: str, logo_url: str | None) -> str:
+    return (f'<div style="margin-bottom:12px;">{_logo_img(company_name, logo_url)}'
+            f'<span style="font-size:24px;font-weight:700;vertical-align:middle;">{company_name}</span></div>')
+
+
+def _single_job_block(job: dict, label: str | None = None) -> str:
+    """Used inside an instant alert email: the company is already named in
+    the header above, so only the job itself (and its posted date) shows here."""
     location = job.get("location") or "Location not listed"
     posted = job.get("posted_at") or "recently"
     label_html = f'<div style="font-size:15px;color:#b45309;font-weight:700;">{label}</div>' if label else ""
-    company_html = f'<div style="font-size:17px;color:#555;">{company_name}</div>' if company_name else ""
     return (
         '<div style="margin:24px 0;">'
         f"{label_html}"
         f'<div style="font-size:20px;font-weight:700;">{job["title"]}</div>'
-        f"{company_html}"
         f'<div style="font-size:17px;color:#555;">{location}</div>'
         f'<div style="font-size:15px;color:#888;">Posted {posted}</div>'
         f"{_cta_button(job)}"
@@ -157,31 +173,57 @@ def _job_block(job: dict, label: str | None = None, company_name: str | None = N
     )
 
 
+def _digest_row(job: dict, company_name: str, logo_url: str | None, label: str | None = None) -> str:
+    """Used inside a digest email: jobs span many companies, so each row names
+    its own company (with logo) and skips the posted date for a tighter list."""
+    location = job.get("location") or "Location not listed"
+    label_html = f'<div style="font-size:15px;color:#b45309;font-weight:700;">{label}</div>' if label else ""
+    return (
+        '<div style="margin:40px 0;padding-bottom:40px;border-bottom:1px solid #e5e5e5;">'
+        f"{label_html}"
+        f'<div style="font-size:19px;font-weight:600;color:#333;">{_logo_img(company_name, logo_url, size=36)}'
+        f'<span style="vertical-align:middle;">{company_name}</span></div>'
+        f'<div style="font-size:20px;font-weight:700;">{job["title"]}</div>'
+        f'<div style="font-size:17px;color:#555;">{location}</div>'
+        f"{_cta_button(job)}"
+        "</div>"
+    )
+
+
 def _wrap(inner: str) -> str:
-    return f'<div style="text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:17px;color:#111;">{inner}</div>'
+    """A full HTML document, not a bare <div> fragment: some clients (Gmail
+    included) collapse part of a message behind a "..." when an email isn't a
+    well-formed document, mistaking the tail for quoted/boilerplate content."""
+    return (
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
+        '<body style="margin:0;padding:0;">'
+        f'<div style="text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:17px;color:#111;padding:24px;">{inner}</div>'
+        "</body></html>"
+    )
 
 
-def new_job_email(company_name: str, jobs: list[dict]) -> tuple[str, str]:
+def new_job_email(company_name: str, jobs: list[dict], logo_url: str | None = None) -> tuple[str, str]:
     single = len(jobs) == 1
     subject = (f"\U0001F680 New Job For You: {jobs[0]['title']} at {company_name}" if single
                else f"\U0001F680 {len(jobs)} New Jobs For You at {company_name}")
     intro = ("just posted a job opportunity that matches your interests!" if single
              else f"just posted {len(jobs)} job opportunities that match your interests!")
-    items = "".join(_job_block(job) for job in jobs)
-    body = _wrap(f'<h2 style="font-size:24px;">{company_name}</h2>'
+    items = "".join(_single_job_block(job) for job in jobs)
+    body = _wrap(f"{_company_header(company_name, logo_url)}"
                  f'<p style="font-size:17px;">{company_name} {intro}</p>'
                  f"{items}{_footer(company_name)}")
     return subject, body
 
 
-def closing_soon_email(company_name: str, jobs: list[dict]) -> tuple[str, str]:
+def closing_soon_email(company_name: str, jobs: list[dict], logo_url: str | None = None) -> tuple[str, str]:
     single = len(jobs) == 1
     subject = (f"\U0001F6A8 Application Closing Soon For: {jobs[0]['title']} at {company_name}" if single
                else f"\U0001F6A8 {len(jobs)} Applications Closing Soon at {company_name}")
     intro = (f"{company_name} will soon be closing applications for this position." if single
              else f"{company_name} will soon be closing applications for these positions.")
-    items = "".join(_job_block(job, label="Closing soon") for job in jobs)
-    body = _wrap(f'<h2 style="font-size:24px;">{company_name}</h2>'
+    items = "".join(_single_job_block(job, label="Closing soon") for job in jobs)
+    body = _wrap(f"{_company_header(company_name, logo_url)}"
                  f'<p style="font-size:17px;">{intro}</p>'
                  f"{items}{_footer(company_name)}")
     return subject, body
@@ -190,13 +232,15 @@ def closing_soon_email(company_name: str, jobs: list[dict]) -> tuple[str, str]:
 def digest_email(frequency: str, rows: list[dict]) -> tuple[str, str]:
     usable = [row for row in rows if row.get("jobs") and row.get("companies")]
     subject = f"\U0001F4A1 {frequency.capitalize()} Digest: New Jobs Just For You!"
-    header = f"{len(usable)} Job{'s' if len(usable) != 1 else ''} That Match Your Preferences"
+    count = len(usable)
+    noun, verb = ("Job", "Matches") if count == 1 else ("Jobs", "Match")
+    header = f"{count} {noun} That {verb} Your Preferences"
     items = "".join(
-        _job_block(row["jobs"], label="Closing soon" if row.get("kind") == "closing_soon" else None,
-                   company_name=row["companies"]["name"])
+        _digest_row(row["jobs"], row["companies"]["name"], row["companies"].get("logo_url"),
+                    label="Closing soon" if row.get("kind") == "closing_soon" else None)
         for row in usable
     )
-    body = _wrap(f'<h2 style="font-size:24px;">{header}</h2>{items}{_footer()}')
+    body = _wrap(f'<h2 style="font-size:24px;">{header}</h2>{items}{_digest_footer()}')
     return subject, body
 
 
@@ -267,7 +311,8 @@ def _insert_notifications(client, rows: list[dict]) -> list[dict]:
     return client.table("notifications").upsert(rows, on_conflict="user_id,job_id,kind", ignore_duplicates=True).execute().data or []
 
 
-def notify_new_jobs(client, company_id: int, company_name: str, jobs: list[dict], now: datetime, kind: str = "new_posting") -> dict:
+def notify_new_jobs(client, company_id: int, company_name: str, jobs: list[dict], now: datetime,
+                     kind: str = "new_posting", company_logo_url: str | None = None) -> dict:
     """jobs: rows as saved to the `jobs` table (must include id, title, url, location, posted_at).
 
     Priority followers (capped at 10, migration 003) are eligible for an instant
@@ -306,7 +351,7 @@ def notify_new_jobs(client, company_id: int, company_name: str, jobs: list[dict]
             continue
         own_job_ids = {row["job_id"] for row in own_rows}
         jobs_for_user = [job for job in jobs if job["id"] in own_job_ids]
-        subject, html = email_builder(company_name, jobs_for_user)
+        subject, html = email_builder(company_name, jobs_for_user, company_logo_url)
         if send_email(email, subject, html):
             emailed_ids += [row["id"] for row in own_rows]
 
@@ -338,30 +383,37 @@ def notify_target_role_matches(client, jobs: list[dict], now: datetime, kind: st
 
 
 def run_digest(client, frequency: str, now: datetime) -> dict:
+    """Driven by who actually has pending notifications, not by who has a saved
+    notification_settings row: a user who never opened Settings still has the
+    column defaults in effect (digest_frequency defaults to weekly) and must
+    not be silently skipped just because no row exists for them yet."""
     if frequency not in ("daily", "weekly"):
         raise ValueError("frequency must be 'daily' or 'weekly'")
-    settings_rows = client.table("notification_settings").select(
-        "user_id, email_enabled, digest_frequency, followed_digest_frequency, target_role_digest_frequency"
-    ).eq("email_enabled", True).execute().data
+    pending = (
+        client.table("notifications")
+        .select("id, user_id, source, kind, jobs(id, title, url, location, posted_at), companies(name, logo_url)")
+        .is_("emailed_at", "null").execute().data
+    )
+    user_ids = sorted({row["user_id"] for row in pending})
+    settings = settings_by_user(client, user_ids)
 
     emailed_users = emailed_notifications = 0
-    for row in settings_rows:
-        due_sources = [source for source, field in CATEGORY_FREQUENCY_FIELD.items() if row.get(field) == frequency]
+    for user_id in user_ids:
+        prefs = settings[user_id]
+        if not prefs["email_enabled"]:
+            continue
+        due_sources = [source for source, field in CATEGORY_FREQUENCY_FIELD.items() if prefs.get(field) == frequency]
         if not due_sources:
             continue
-        user_id = row["user_id"]
-        pending = (
-            client.table("notifications").select("id, source, kind, jobs(id, title, url, location, posted_at), companies(name)")
-            .eq("user_id", user_id).is_("emailed_at", "null").in_("source", due_sources).execute().data
-        )
-        if not pending:
+        due_rows = [row for row in pending if row["user_id"] == user_id and row["source"] in due_sources]
+        if not due_rows:
             continue
         email = user_email(client, user_id)
         if not email:
             continue
-        subject, html = digest_email(frequency, pending)
+        subject, html = digest_email(frequency, due_rows)
         if send_email(email, subject, html):
-            ids = [item["id"] for item in pending]
+            ids = [item["id"] for item in due_rows]
             client.table("notifications").update({"emailed_at": now.isoformat()}).in_("id", ids).execute()
             emailed_users += 1
             emailed_notifications += len(ids)
