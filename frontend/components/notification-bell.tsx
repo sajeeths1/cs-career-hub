@@ -5,11 +5,11 @@ import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { fetchNotifications, markNotificationsRead } from "@/lib/data";
-import { SOURCE_LABELS, unreadCount } from "@/lib/notifications";
+import { KIND_LABELS, SOURCE_LABELS, unreadCount } from "@/lib/notifications";
 import type { NotificationRow } from "@/lib/types";
 
 /** Bell with a dropdown feed of new postings at companies the student follows. */
-export function NotificationBell() {
+export function NotificationBell({ onOpenJob }: { onOpenJob: (jobId: number) => void }) {
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -55,6 +55,19 @@ export function NotificationBell() {
 
   const unread = unreadCount(notifications);
 
+  async function openNotification(row: NotificationRow) {
+    setOpen(false);
+    onOpenJob(row.job_id);
+    if (row.read_at) return;
+    try {
+      await markNotificationsRead([row.id]);
+      const now = new Date().toISOString();
+      setNotifications((rows) => rows.map((item) => (item.id === row.id ? { ...item, read_at: now } : item)));
+    } catch {
+      // Non-critical: the job still opens even if marking it read fails.
+    }
+  }
+
   return (
     <div className="relative" ref={containerRef}>
       <Button
@@ -68,9 +81,7 @@ export function NotificationBell() {
       >
         <Bell className="h-4 w-4" aria-hidden="true" />
         {unread > 0 ? (
-          <Badge className="absolute -right-1 -top-1 h-5 min-w-5 justify-center border-none bg-primary px-1 text-primary-foreground">
-            {unread > 9 ? "9+" : unread}
-          </Badge>
+          <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-background" aria-hidden="true" />
         ) : null}
       </Button>
       {open ? (
@@ -86,25 +97,35 @@ export function NotificationBell() {
             {error ? <p role="alert" className="p-3 text-sm text-red-600">{error}</p> : null}
             {!loading && !error && notifications.length === 0 ? (
               <p className="p-3 text-sm text-muted-foreground">
-                No notifications yet. Follow companies in Settings to get alerted about new roles.
+                No notifications yet. Follow companies in the Companies tab to get alerted about new roles.
               </p>
             ) : null}
             {notifications.map((row) => (
-              <a
-                className={`block rounded-md p-2 text-sm hover:bg-muted ${row.read_at ? "" : "bg-muted/60"}`}
-                href={row.jobs?.url ?? "#"}
+              <button
+                className={`block w-full rounded-md p-2 text-left text-sm hover:bg-muted ${row.read_at ? "" : "bg-muted/60"}`}
                 key={row.id}
-                rel="noreferrer"
-                target="_blank"
+                type="button"
+                onClick={() => void openNotification(row)}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">{row.jobs?.title ?? "A job that is no longer listed"}</p>
-                  <Badge className="shrink-0 text-[10px]">{SOURCE_LABELS[row.source]}</Badge>
+                <div className="flex items-start gap-2">
+                  {row.companies?.logo_url ? (
+                    <img
+                      alt=""
+                      className="mt-0.5 h-6 w-6 shrink-0 rounded object-contain"
+                      src={row.companies.logo_url}
+                    />
+                  ) : null}
+                  <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                    <p className="font-medium">{row.jobs?.title ?? "A job that is no longer listed"}</p>
+                    <Badge className={`shrink-0 text-[10px] ${row.kind === "closing_soon" ? "border-amber-200 bg-amber-50 text-amber-700" : ""}`}>
+                      {SOURCE_LABELS[row.source]}
+                    </Badge>
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {row.companies?.name ?? "Unknown company"} · {formatRelative(row.created_at)}
+                <p className={`text-xs ${row.kind === "closing_soon" ? "font-semibold text-amber-700" : "text-muted-foreground"}`}>
+                  {row.companies?.name ?? "this company"} · {KIND_LABELS[row.kind]} · {formatRelative(row.created_at)}
                 </p>
-              </a>
+              </button>
             ))}
           </div>
         </div>

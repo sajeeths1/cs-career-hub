@@ -84,6 +84,9 @@ export function CompaniesTab({ userId }: { userId: string }) {
               <div className="grid gap-2">
                 {filteredCompanies.map((company) => (
                   <div className="flex flex-wrap items-center gap-2 rounded-md border p-2" key={company.id}>
+                    {company.logo_url ? (
+                      <img alt="" className="h-6 w-6 shrink-0 rounded object-contain" src={company.logo_url} />
+                    ) : null}
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{company.name}</span>
                     <FollowCompanyButton
                       companyId={company.id}
