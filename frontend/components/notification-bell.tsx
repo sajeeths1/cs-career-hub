@@ -68,13 +68,13 @@ export function NotificationBell() {
       >
         <Bell className="h-4 w-4" aria-hidden="true" />
         {unread > 0 ? (
-          <Badge className="absolute -right-1 -top-1 h-5 min-w-5 justify-center border-none bg-primary px-1 text-primary-foreground">
+          <Badge className="absolute -right-1 -top-1 h-5 min-w-5 justify-center bg-orange-700 px-1 text-white">
             {unread > 9 ? "9+" : unread}
           </Badge>
         ) : null}
       </Button>
       {open ? (
-        <div className="absolute right-0 top-full z-20 mt-2 w-80 rounded-lg border bg-card shadow-lg">
+        <div className="absolute right-0 top-full z-20 mt-2 w-80 rounded-xl border bg-card shadow-[0_8px_24px_rgba(20,23,31,0.10)]">
           <div className="flex items-center justify-between border-b p-3">
             <p className="text-sm font-semibold">Notifications</p>
             <Button disabled={!unread} size="sm" variant="ghost" onClick={markAllRead}>
@@ -86,12 +86,12 @@ export function NotificationBell() {
             {error ? <p role="alert" className="p-3 text-sm text-red-600">{error}</p> : null}
             {!loading && !error && notifications.length === 0 ? (
               <p className="p-3 text-sm text-muted-foreground">
-                No notifications yet. Follow companies in Settings to get alerted about new roles.
+                No notifications yet. Follow companies in Personalization to hear about their new roles.
               </p>
             ) : null}
             {notifications.map((row) => (
               <a
-                className={`block rounded-md p-2 text-sm hover:bg-muted ${row.read_at ? "" : "bg-muted/60"}`}
+                className={`block rounded-lg p-2.5 text-sm hover:bg-muted ${row.read_at ? "" : "bg-primary/5"}`}
                 href={row.jobs?.url ?? "#"}
                 key={row.id}
                 rel="noreferrer"
@@ -99,7 +99,7 @@ export function NotificationBell() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="font-medium">{row.jobs?.title ?? "A job that is no longer listed"}</p>
-                  <Badge className="shrink-0 text-[10px]">{SOURCE_LABELS[row.source]}</Badge>
+                  <Badge className="shrink-0 text-[10px]">{row.source === "priority_company" ? "Instant list" : SOURCE_LABELS[row.source]}</Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {row.companies?.name ?? "Unknown company"} · {formatRelative(row.created_at)}

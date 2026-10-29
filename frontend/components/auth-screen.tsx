@@ -36,13 +36,18 @@ export function AuthScreen() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-background px-4">
-      <Card className="w-full max-w-sm">
+    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-background px-4">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-24 -top-32 h-96 w-[520px] rounded-full bg-[#DCE6F2] opacity-70 blur-[90px]" />
+        <div className="absolute -right-20 bottom-[-120px] h-96 w-[520px] rounded-full bg-[#D8EAEC] opacity-70 blur-[90px]" />
+      </div>
+      <Card className="relative w-full max-w-sm">
         <CardHeader>
-          <div className="mb-2 grid h-10 w-10 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
-            CH
+          <div className="mb-3 flex items-center gap-2.5">
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">CS</div>
+            <span className="text-base font-bold">Career Hub</span>
           </div>
-          <CardTitle>{mode === "signin" ? "Sign in to CS Career Hub" : "Create your account"}</CardTitle>
+          <CardTitle className="font-display text-[26px] font-medium">{mode === "signin" ? "Welcome back" : "Create your account"}</CardTitle>
           <CardDescription>Find CS internships and track your applications in one place.</CardDescription>
         </CardHeader>
         <CardContent>

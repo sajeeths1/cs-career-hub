@@ -112,7 +112,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     try {
       setFollowedCompanyIds(await fetchFollowedCompanyIds(userId));
     } catch {
-      // Non-critical for the jobs view; the Settings tab surfaces load errors for this.
+      // Non-critical for the jobs view; the Personalization page shows load errors for this.
     }
   }, [userId]);
 
