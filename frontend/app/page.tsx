@@ -16,6 +16,7 @@ import { NotificationSettingsTab } from "@/components/notification-settings";
 import { CompaniesTab } from "@/components/companies";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { DashboardView } from "@/components/dashboard-view";
+import { MobileNav, SectionTabs, Sidebar } from "@/components/sidebar";
 import { JobsView } from "@/components/jobs/jobs-view";
 import { TrackerView } from "@/components/tracker/tracker-view";
 import { CenteredText, SetupMessage } from "@/components/ui/empty-states";
@@ -30,7 +31,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
   fetchApplications,
   fetchFollowedCompanyIds,
@@ -41,7 +42,6 @@ import {
   removeApplication,
   setApplicationStatus,
 } from "@/lib/data";
-import { navItems } from "@/lib/mock-data";
 import { parseTargetRoles } from "@/lib/job-personalization";
 import { supabase } from "@/lib/supabase";
 import {
@@ -312,45 +312,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
   return (
     <main className="flex min-h-screen bg-background text-foreground">
-      <aside className="hidden w-64 shrink-0 border-r bg-card px-4 py-5 lg:flex lg:flex-col">
-        <div className="mb-8 flex items-center gap-3 px-2">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
-            CH
-          </div>
-          <div className="min-w-0">
-            <p className="font-semibold">CS Career Hub</p>
-            <p className="truncate text-xs text-muted-foreground">{email}</p>
-          </div>
-        </div>
-        <nav className="space-y-1">
-          {navItems.map((item) => {
-            const value = item.label.toLowerCase();
-            return (
-              <button
-                className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${
-                  tab === value
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-                key={item.label}
-                type="button"
-                onClick={() => setTab(value)}
-              >
-                <item.icon className="h-4 w-4" aria-hidden="true" />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-        <Button
-          className="mt-auto justify-start"
-          variant="outline"
-          onClick={() => supabase?.auth.signOut()}
-        >
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-          Sign out
-        </Button>
-      </aside>
+      <Sidebar tab={tab} onChange={setTab} email={email} onSignOut={() => void supabase?.auth.signOut()} />
 
       <section className="min-w-0 flex-1">
         <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur sm:px-6">
@@ -397,16 +359,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
           ) : null}
 
           <Tabs className="space-y-5" defaultValue="dashboard" value={tab} onValueChange={setTab}>
-            <TabsList className="max-w-full overflow-x-auto lg:hidden">
-              <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-              <TabsTrigger value="jobs">Jobs</TabsTrigger>
-              <TabsTrigger value="saved">Saved Jobs</TabsTrigger>
-              <TabsTrigger value="applications">Applications</TabsTrigger>
-              <TabsTrigger value="skills">Skills</TabsTrigger>
-              <TabsTrigger value="companies">Companies</TabsTrigger>
-              <TabsTrigger value="profile">Profile</TabsTrigger>
-              <TabsTrigger value="settings">Settings</TabsTrigger>
-            </TabsList>
+            <MobileNav tab={tab} onChange={setTab} />
+            <SectionTabs tab={tab} onChange={setTab} />
 
             {/* ---------------- Dashboard ---------------- */}
             <TabsContent value="dashboard" className="space-y-6">
