@@ -86,7 +86,7 @@ export function NotificationBell() {
             {error ? <p role="alert" className="p-3 text-sm text-red-600">{error}</p> : null}
             {!loading && !error && notifications.length === 0 ? (
               <p className="p-3 text-sm text-muted-foreground">
-                No notifications yet. Follow companies in Settings to get alerted about new roles.
+                No notifications yet. Prioritize companies in Personalization to get alerted about new roles.
               </p>
             ) : null}
             {notifications.map((row) => (

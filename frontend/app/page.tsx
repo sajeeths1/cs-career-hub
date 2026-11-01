@@ -13,10 +13,10 @@ import {
 import { AuthScreen } from "@/components/auth-screen";
 import { ProfileForm } from "@/components/profile-form";
 import { SkillDevelopment } from "@/components/skill-development";
-import { ResumeUpload } from "@/components/resume-upload";
 import { NotificationBell } from "@/components/notification-bell";
 import { NotificationSettingsTab } from "@/components/notification-settings";
 import { CompaniesTab } from "@/components/companies";
+import { DeleteAccount } from "@/components/delete-account";
 import { FollowCompanyButton } from "@/components/follow-company-button";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   fetchApplications,
-  fetchFollowedCompanyIds,
+  fetchPriorityCompanyIds,
   fetchJob,
   fetchJobsForTargetRoles,
   fetchOpenJobs,
@@ -42,6 +42,7 @@ import {
 } from "@/lib/data";
 import { navItems } from "@/lib/mock-data";
 import { parseTargetRoles } from "@/lib/job-personalization";
+import { matchesPostedDate, matchesLocation, POSTED_DATE_FILTERS, type LocationFilter, type PostedDateFilter } from "@/lib/job-filters";
 import { supabase } from "@/lib/supabase";
 import {
   TRACKER_COLUMNS,
@@ -103,12 +104,18 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [tab, setTab] = useState("dashboard");
   const [resumeResult, setResumeResult] = useState<ParsedResume | null>(null);
   const [resumeDraft, setResumeDraft] = useState<ResumeDraft | null>(null);
-  const fillProfileFromResume = (draft: ResumeDraft) => { setResumeDraft(draft); setTab("profile"); };
+  const fillProfileFromResume = (draft: ResumeDraft) => { setResumeDraft(draft); setTab("personalization"); };
   const [search, setSearch] = useState("");
   const [workMode, setWorkMode] = useState<WorkModeFilter>("all");
+  const [jobPostedDate, setJobPostedDate] = useState<PostedDateFilter>("any");
+  const [jobLocation, setJobLocation] = useState<LocationFilter>("any");
+  const [jobLocationQuery, setJobLocationQuery] = useState("");
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [trackerSearch, setTrackerSearch] = useState("");
   const [trackerWorkMode, setTrackerWorkMode] = useState<WorkModeFilter>("all");
+  const [trackerPostedDate, setTrackerPostedDate] = useState<PostedDateFilter>("any");
+  const [trackerLocation, setTrackerLocation] = useState<LocationFilter>("any");
+  const [trackerLocationQuery, setTrackerLocationQuery] = useState("");
   const [trackerStatus, setTrackerStatus] = useState("all");
   const [trackerSort, setTrackerSort] = useState("recent");
   const [busyJobId, setBusyJobId] = useState<number | null>(null);
@@ -125,19 +132,19 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [openingJob, setOpeningJob] = useState(false);
   const [jobOpenError, setJobOpenError] = useState<string | null>(null);
   const jobOpenRequest = useRef(0);
-  const [followedCompanyIds, setFollowedCompanyIds] = useState<number[]>([]);
+  const [priorityCompanyIds, setPriorityCompanyIds] = useState<number[]>([]);
 
-  const loadFollowedCompanies = useCallback(async () => {
+  const loadPriorityCompanies = useCallback(async () => {
     try {
-      setFollowedCompanyIds(await fetchFollowedCompanyIds(userId));
+      setPriorityCompanyIds(await fetchPriorityCompanyIds(userId));
     } catch {
-      // Non-critical for the jobs view; the Settings tab surfaces load errors for this.
+      // Non-critical for the jobs view; Personalization surfaces load errors.
     }
   }, [userId]);
 
   useEffect(() => {
-    void loadFollowedCompanies();
-  }, [loadFollowedCompanies]);
+    void loadPriorityCompanies();
+  }, [loadPriorityCompanies]);
   const rolesKey = profile?.target_roles ?? "";
   const targetRoles = useMemo(() => parseTargetRoles(rolesKey), [rolesKey]);
 
@@ -248,28 +255,34 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     const term = search.trim().toLowerCase();
     return viewJobs.filter((job) => {
       if (workMode !== "all" && job.work_mode !== workMode) return false;
+      if (!matchesPostedDate(job.posted_at, jobPostedDate)) return false;
+      if (!matchesLocation(job.location, jobLocation, profile?.preferred_location ?? null, jobLocationQuery)) return false;
       if (!term) return true;
       const haystack = `${job.title} ${job.companies?.name ?? ""} ${job.location ?? ""}`;
       return haystack.toLowerCase().includes(term);
     });
-  }, [viewJobs, search, workMode]);
+  }, [viewJobs, search, workMode, jobPostedDate, jobLocation, jobLocationQuery, profile?.preferred_location]);
 
   const selectedJob =
     (directJob?.id === selectedJobId ? directJob : null) ??
     filteredJobs.find((job) => job.id === selectedJobId) ?? filteredJobs[0] ?? null;
 
-  const savedJobs = applications.filter((app) => normalizeStatus(app.status) === "saved");
-  const activeApplications = applications.filter((app) => normalizeStatus(app.status) !== "saved");
+  const unseenDashboardJobs = dashboardJobs.filter((job) => !statusByJob.has(job.id));
+  const priorityJobs = jobs.filter((job) => priorityCompanyIds.includes(job.company_id)).slice(0, 3);
 
-  function visibleTrackerRows(rows: Application[], view: "saved" | "applications") {
+  function visibleTrackerRows() {
     const term = trackerSearch.trim().toLowerCase();
-    return rows.filter((app) => {
-      if (view === "applications" && trackerStatus !== "all" && normalizeStatus(app.status) !== trackerStatus) return false;
+    return applications.filter((app) => {
+      if (trackerStatus !== "all" && normalizeStatus(app.status) !== trackerStatus) return false;
       if (trackerWorkMode !== "all" && app.jobs?.work_mode !== trackerWorkMode) return false;
+      if (!matchesPostedDate(app.jobs?.posted_at ?? null, trackerPostedDate)) return false;
+      if (!matchesLocation(app.jobs?.location ?? null, trackerLocation, profile?.preferred_location ?? null, trackerLocationQuery)) return false;
       const job = app.jobs;
       return !term || `${job?.title ?? ""} ${job?.companies?.name ?? ""} ${job?.location ?? ""}`.toLowerCase().includes(term);
     }).sort((a, b) => trackerSort === "title"
       ? (a.jobs?.title ?? "").localeCompare(b.jobs?.title ?? "")
+      : trackerSort === "company"
+        ? (a.jobs?.companies?.name ?? "").localeCompare(b.jobs?.companies?.name ?? "")
       : new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
   }
 
@@ -277,7 +290,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     applications.filter((app) => normalizeStatus(app.status) === status).length;
 
   const metrics = [
-    { label: "Open CS jobs", value: jobs.length, note: "From company job boards" },
+    { label: "Loaded CS jobs", value: jobs.length, note: "Up to 300 newest postings" },
     { label: "Saved", value: countByStatus("saved"), note: "In your tracker" },
     { label: "Applied", value: countByStatus("applied"), note: "Waiting to hear back" },
     { label: "Interviewing", value: countByStatus("interviewing"), note: "Keep preparing" },
@@ -301,6 +314,9 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     setJobView(view);
     setSearch("");
     setWorkMode("all");
+    setJobPostedDate("any");
+    setJobLocation("any");
+    setJobLocationQuery("");
     setSelectedJobId(jobId);
     setJobOpenError(null);
     setTab("jobs");
@@ -322,14 +338,14 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
   return (
     <main className="flex min-h-screen bg-background text-foreground">
-      <aside className="hidden w-64 shrink-0 border-r bg-card px-4 py-5 lg:flex lg:flex-col">
+      <aside className="hidden w-64 shrink-0 border-r border-slate-800 bg-[#112a46] px-4 py-5 text-white lg:flex lg:flex-col">
         <div className="mb-8 flex items-center gap-3 px-2">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
+          <div className="grid h-9 w-9 place-items-center rounded-md bg-cyan-300 text-sm font-bold text-slate-950">
             CH
           </div>
           <div className="min-w-0">
             <p className="font-semibold">CS Career Hub</p>
-            <p className="truncate text-xs text-muted-foreground">{email}</p>
+            <p className="truncate text-xs text-slate-300">{email}</p>
           </div>
         </div>
         <nav className="space-y-1">
@@ -339,8 +355,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               <button
                 className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${
                   tab === value
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    ? "bg-white/15 text-white ring-1 ring-white/15"
+                    : "text-slate-300 hover:bg-white/10 hover:text-white"
                 }`}
                 key={item.label}
                 type="button"
@@ -353,7 +369,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
           })}
         </nav>
         <Button
-          className="mt-auto justify-start"
+          className="mt-auto justify-start border-white/25 text-white hover:bg-white/10"
           variant="outline"
           onClick={() => supabase?.auth.signOut()}
         >
@@ -363,7 +379,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
       </aside>
 
       <section className="min-w-0 flex-1">
-        <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur sm:px-6">
+        <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b bg-card/90 px-4 backdrop-blur sm:px-6">
           <div className="relative max-w-xl flex-1">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -383,7 +399,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             />
           </div>
           <Button aria-label="Refresh" size="icon" variant="outline" onClick={() => {
-            void loadAll(); void loadProfile(); void loadFollowedCompanies(); setRecommendationRefresh((n) => n + 1);
+            void loadAll(); void loadProfile(); void loadPriorityCompanies(); setRecommendationRefresh((n) => n + 1);
           }}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
@@ -400,98 +416,67 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
         </header>
 
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-6 sm:px-6">
-          <section>
-            <p className="text-sm font-medium text-muted-foreground">Student dashboard</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight">
-              Find the next role worth applying to
-            </h1>
-          </section>
-
           {error ? (
             <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               Something went wrong talking to the database: {error}
             </div>
           ) : null}
 
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {metrics.map((metric) => (
-              <Card key={metric.label}>
-                <CardContent className="p-5">
-                  <p className="text-sm text-muted-foreground">{metric.label}</p>
-                  <p className="mt-2 text-3xl font-semibold">{loading ? "–" : metric.value}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{metric.note}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </section>
-
           <Tabs className="space-y-5" defaultValue="dashboard" value={tab} onValueChange={setTab}>
             <TabsList className="max-w-full overflow-x-auto lg:hidden">
               <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
               <TabsTrigger value="jobs">Jobs</TabsTrigger>
-              <TabsTrigger value="saved">Saved Jobs</TabsTrigger>
-              <TabsTrigger value="applications">Applications</TabsTrigger>
+              <TabsTrigger value="tracker">Tracker</TabsTrigger>
               <TabsTrigger value="skills">Skills</TabsTrigger>
-              <TabsTrigger value="companies">Companies</TabsTrigger>
-              <TabsTrigger value="profile">Profile</TabsTrigger>
-              <TabsTrigger value="settings">Settings</TabsTrigger>
+              <TabsTrigger value="personalization">Personalization</TabsTrigger>
             </TabsList>
 
             {/* ---------------- Dashboard ---------------- */}
-            <TabsContent value="dashboard" className="grid gap-6 xl:grid-cols-[1fr_360px]">
-              <Card>
-                <CardHeader className="flex flex-row items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <CardTitle>{dashboardPersonalized ? "Jobs for you" : "Newest jobs"}</CardTitle>
-                    <CardDescription>{dashboardPersonalized
-                      ? `Based on your target roles: ${targetRoles.join(", ")}.`
-                      : "The latest open CS roles from company job boards. Add target roles in your profile to personalize this view."}</CardDescription>
-                  </div>
-                  <Button className="shrink-0" size="sm" variant="outline" onClick={() => { changeJobView(dashboardPersonalized ? "for_you" : "all"); setTab("jobs"); }}>
-                    View more
-                  </Button>
-                </CardHeader>
-                <CardContent className="grid gap-3">
-                  {dashboardLoading ? <EmptyText text="Loading jobs…" /> : null}
-                  {!dashboardLoading && dashboardPersonalized && recommendationError && <p role="alert" className="text-sm text-red-600">Could not load personalized jobs. Open Jobs to retry or browse all jobs.</p>}
-                  {!dashboardLoading && !recommendationError && dashboardJobs.length === 0 ? (
-                    <EmptyText text={dashboardPersonalized ? "No open titles match your target roles yet. You can edit your profile or browse All jobs." : "No open jobs are available yet."} />
-                  ) : null}
-                  {!dashboardLoading && dashboardJobs.slice(0, 6).map((job) => (
-                    <JobRow
-                      job={job}
-                      key={job.id}
-                      status={statusByJob.get(job.id)}
-                      onOpen={() => void openJob(job.id, dashboardPersonalized ? "for_you" : "all")}
-                      onSave={() => track(job.id, "saved")}
-                    />
-                  ))}
-                </CardContent>
-              </Card>
-              <div className="grid content-start gap-6">
+            <TabsContent value="dashboard" className="grid gap-6">
+              <div>
+                <h1 className="text-3xl font-semibold tracking-tight">Welcome{profile?.full_name ? `, ${profile.full_name.split(" ")[0]}` : ""}</h1>
+                <p className="mt-1 text-muted-foreground">Your jobs, applications, and next steps in one place.</p>
+              </div>
+              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Overview">
+                {metrics.map((metric, index) => (
+                  <Card className={`border-t-4 ${["border-t-sky-500", "border-t-teal-500", "border-t-indigo-500", "border-t-amber-500"][index]}`} key={metric.label}>
+                    <CardContent className="p-5">
+                      <p className="text-sm text-muted-foreground">{metric.label}</p>
+                      <p className="mt-2 text-3xl font-semibold">{loading ? "–" : metric.value}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{metric.note}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </section>
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Your tracker</CardTitle>
-                    <CardDescription>Jobs you&apos;re keeping an eye on.</CardDescription>
+                  <CardHeader className="flex flex-row items-start justify-between gap-4">
+                    <div><CardTitle>{dashboardPersonalized ? "Jobs for you" : "Newest jobs"}</CardTitle>
+                      <CardDescription>{dashboardPersonalized ? "Based on your saved target roles. Match scores are pending." : "Add target roles in your profile to personalize this list."}</CardDescription></div>
+                    <Button size="sm" variant="outline" onClick={() => { changeJobView(dashboardPersonalized ? "for_you" : "all"); setTab("jobs"); }}>See all jobs</Button>
                   </CardHeader>
                   <CardContent className="grid gap-2">
-                    {TRACKER_COLUMNS.map((column) => (
-                      <div className="flex items-center justify-between text-sm" key={column.status}>
-                        <span>{column.label}</span>
-                        <Badge>{countByStatus(column.status)}</Badge>
-                      </div>
+                    {dashboardLoading && <EmptyText text="Loading jobs…" />}
+                    {!dashboardLoading && recommendationError && <p role="alert" className="text-sm text-red-600">Could not load personalized jobs. Open Jobs to retry.</p>}
+                    {!dashboardLoading && !recommendationError && unseenDashboardJobs.length === 0 && <EmptyText text="No new jobs to show yet. Browse all jobs or update your target roles." />}
+                    {!dashboardLoading && unseenDashboardJobs.slice(0, 4).map((job) => (
+                      <JobRow key={job.id} job={job} onOpen={() => void openJob(job.id, dashboardPersonalized ? "for_you" : "all")} onSave={() => void track(job.id, "saved")} />
                     ))}
-                    <Button
-                      className="mt-2"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setTab("applications")}
-                    >
-                      Open tracker
-                    </Button>
                   </CardContent>
                 </Card>
-                <ResumeUpload compact userId={userId} result={resumeResult} onResult={setResumeResult} onProfileDraft={fillProfileFromResume} />
+                <div className="grid content-start gap-6">
+                  <Card><CardHeader><CardTitle>From priority companies</CardTitle><CardDescription>Recent loaded postings from companies you prioritize.</CardDescription></CardHeader>
+                    <CardContent className="grid gap-3">
+                      {priorityJobs.length ? priorityJobs.map((job) => <button className="border-b pb-3 text-left last:border-0" key={job.id} onClick={() => void openJob(job.id)}>
+                        <span className="block text-sm font-semibold hover:underline">{job.title}</span>
+                        <span className="text-xs text-muted-foreground">{job.companies?.name} · {formatPosted(job.posted_at)}</span>
+                      </button>) : <p className="text-sm text-muted-foreground">No new postings from your priority companies. <button className="text-primary underline" onClick={() => setTab("personalization")}>Choose companies</button>.</p>}
+                    </CardContent>
+                  </Card>
+                  <Card><CardHeader><CardTitle>Skills to develop</CardTitle><CardDescription>See which skills appear in current job postings.</CardDescription></CardHeader>
+                    <CardContent><Button variant="outline" onClick={() => setTab("skills")}>Explore skill gaps</Button></CardContent>
+                  </Card>
+                </div>
               </div>
             </TabsContent>
 
@@ -521,6 +506,17 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                       </Button>
                     ))}
                   </div>
+                  <div className="flex flex-wrap items-end gap-3 pt-2">
+                    <label className="grid gap-1 text-xs font-medium">
+                      Date posted
+                      <select aria-label="Filter jobs by date posted" className="h-10 rounded-md border bg-card px-3 text-sm" value={jobPostedDate} onChange={(event) => { resetJobSelection(); setJobPostedDate(event.target.value as PostedDateFilter); }}>
+                        {POSTED_DATE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <LocationControls filter={jobLocation} onFilter={(filter) => { resetJobSelection(); setJobLocation(filter); }} query={jobLocationQuery} onQuery={(query) => { resetJobSelection(); setJobLocationQuery(query); }} preferred={profile?.preferred_location ?? null} />
+                    <UnavailableMatchFilter id="jobs" />
+                    <Button size="sm" variant="ghost" onClick={() => { resetJobSelection(); setSearch(""); setWorkMode("all"); setJobPostedDate("any"); setJobLocation("any"); setJobLocationQuery(""); }}>Clear filters</Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="grid max-h-[70vh] gap-3 overflow-y-auto">
                   {viewLoading && <p role="status" className="text-sm text-muted-foreground">Loading jobs…</p>}
@@ -528,7 +524,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                     <p>Could not load your target roles: {profileError}</p><Button variant="outline" onClick={() => void loadProfile()}>Retry profile</Button>
                   </div>}
                   {jobView === "for_you" && !profileError && !targetRoles.length && <p className="text-sm text-muted-foreground">
-                    Showing all jobs. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => setTab("profile")}>Set target roles</button> to personalize this view.
+                    Showing all jobs. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => setTab("personalization")}>Set target roles</button> to personalize this view.
                   </p>}
                   {jobView === "for_you" && !viewLoading && !profileError && targetRoles.length > 0 && recommendationError && <div role="alert" className="grid gap-3 text-sm">
                     <p>Could not load personalized jobs: {recommendationError}</p><Button variant="outline" onClick={() => setRecommendationRefresh((n) => n + 1)}>Retry recommendations</Button>
@@ -552,10 +548,10 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
               {openingJob || jobOpenError ? <Card><CardContent className="p-5"><p role={jobOpenError ? "alert" : "status"} className="text-sm">{jobOpenError ?? "Loading job details…"}</p></CardContent></Card> : selectedJob && !viewLoading ? (
                 <JobDetail
-                  isFollowingCompany={followedCompanyIds.includes(selectedJob.company_id)}
+                  isPriorityCompany={priorityCompanyIds.includes(selectedJob.company_id)}
                   job={selectedJob}
-                  onFollowCompanyToggled={(companyId, following) => setFollowedCompanyIds((ids) =>
-                    following ? [...ids, companyId] : ids.filter((id) => id !== companyId))}
+                  onPriorityCompanyToggled={(companyId, priority) => setPriorityCompanyIds((ids) =>
+                    priority ? [...new Set([...ids, companyId])] : ids.filter((id) => id !== companyId))}
                   status={statusByJob.get(selectedJob.id)}
                   onTrack={(status) => track(selectedJob.id, status)}
                   userId={userId}
@@ -569,64 +565,46 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               )}
             </TabsContent>
 
-            {/* ---------------- Saved Jobs and Applications ---------------- */}
-            {(["saved", "applications"] as const).map((view) => (
-              <TabsContent value={view} key={view}>
-                <TrackerView
-                  title={view === "saved" ? "Saved Jobs" : "My Applications"}
-                  description={view === "saved"
-                    ? "Opportunities you bookmarked but haven't applied to yet."
-                    : "Track applications from submission through the final outcome."}
-                  rows={visibleTrackerRows(view === "saved" ? savedJobs : activeApplications, view)}
-                  total={view === "saved" ? savedJobs.length : activeApplications.length}
-                  view={view}
-                  search={trackerSearch}
-                  onSearch={setTrackerSearch}
-                  workMode={trackerWorkMode}
-                  onWorkMode={setTrackerWorkMode}
-                  status={trackerStatus}
-                  onStatus={setTrackerStatus}
-                  sort={trackerSort}
-                  onSort={setTrackerSort}
-                  busyJobId={busyJobId}
-                  onChange={track}
-                  onOpen={openJob}
-                  onRemove={untrack}
-                />
-              </TabsContent>
-            ))}
+            {/* ---------------- Combined tracker ---------------- */}
+            <TabsContent value="tracker">
+              <TrackerView rows={visibleTrackerRows()} allRows={applications}
+                search={trackerSearch} onSearch={setTrackerSearch}
+                workMode={trackerWorkMode} onWorkMode={setTrackerWorkMode}
+                postedDate={trackerPostedDate} onPostedDate={setTrackerPostedDate}
+                location={trackerLocation} onLocation={setTrackerLocation}
+                locationQuery={trackerLocationQuery} onLocationQuery={setTrackerLocationQuery}
+                preferredLocation={profile?.preferred_location ?? null}
+                status={trackerStatus} onStatus={setTrackerStatus}
+                sort={trackerSort} onSort={setTrackerSort}
+                busyJobId={busyJobId} onChange={track} onOpen={openJob} onRemove={untrack} />
+            </TabsContent>
 
             <TabsContent value="skills">
-              <SkillDevelopment userId={userId} jobs={jobs} jobsLoading={loading} />
+              <SkillDevelopment userId={userId} jobs={jobs} jobsLoading={loading}
+                resumeResult={resumeResult} onResumeResult={setResumeResult} onProfileDraft={fillProfileFromResume} />
             </TabsContent>
 
-            {/* ---------------- Companies ---------------- */}
-            <TabsContent value="companies">
-              <CompaniesTab userId={userId} />
-            </TabsContent>
-
-            {/* ---------------- Profile ---------------- */}
-            <TabsContent value="profile" className="grid gap-6 xl:grid-cols-[1fr_360px]">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Your profile</CardTitle>
-                  <CardDescription>Saved to your account in Supabase.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ProfileForm userId={userId} resumeDraft={resumeDraft} onSaved={(saved) => {
-                    setResumeDraft(null);
-                    profileRequest.current++;
-                    setProfile(saved); setProfileLoading(false); setProfileError(null);
-                    resetJobSelection();
-                  }} />
-                </CardContent>
+            {/* ---------------- Personalization ---------------- */}
+            <TabsContent value="personalization" className="grid gap-6">
+              <div><h2 className="text-2xl font-semibold">Personalization</h2><p className="text-sm text-muted-foreground">Your profile and preferences shape your job list and alerts.</p></div>
+              <Card><CardHeader><CardTitle>Your profile and job preferences</CardTitle><CardDescription>Save target roles and a preferred location to personalize jobs and the location filter.</CardDescription></CardHeader>
+                <CardContent><ProfileForm userId={userId} resumeDraft={resumeDraft} onSaved={(saved) => {
+                  setResumeDraft(null);
+                  profileRequest.current++;
+                  setProfile(saved); setProfileLoading(false); setProfileError(null);
+                  resetJobSelection();
+                }} /></CardContent>
               </Card>
-              <ResumeUpload compact userId={userId} result={resumeResult} onResult={setResumeResult} onProfileDraft={fillProfileFromResume} />
-            </TabsContent>
-
-            {/* ---------------- Settings ---------------- */}
-            <TabsContent value="settings">
-              <NotificationSettingsTab userId={userId} />
+              <div className="grid gap-6 xl:grid-cols-2">
+                <CompaniesTab userId={userId} onPriorityToggled={(companyId, priority) => setPriorityCompanyIds((ids) =>
+                  priority ? [...new Set([...ids, companyId])] : ids.filter((id) => id !== companyId))} />
+                <NotificationSettingsTab userId={userId} />
+              </div>
+              <section className="grid gap-3" aria-label="Your data">
+                <h3 className="font-semibold">Your data</h3>
+                <p className="text-sm text-muted-foreground">Add skills from a resume in Skills. Your resume file is not saved by the site.</p>
+                <DeleteAccount />
+              </section>
             </TabsContent>
           </Tabs>
         </div>
@@ -638,6 +616,17 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 // ---------------------------------------------------------------------------
 // Small pieces
 // ---------------------------------------------------------------------------
+
+function MatchScoreBadge() {
+  return (
+    <span
+      className="inline-flex w-fit items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-800"
+      title="A match score has not been calculated for this job yet."
+    >
+      Match score: Pending
+    </span>
+  );
+}
 
 function JobRow({
   job,
@@ -656,12 +645,13 @@ function JobRow({
 }) {
   return (
     <article
-      className={`grid gap-3 rounded-lg border p-4 sm:grid-cols-[1fr_auto] sm:items-center ${
-        selected ? "border-primary bg-muted/50" : ""
+      className={`grid gap-3 rounded-lg border bg-card p-4 transition-colors sm:grid-cols-[1fr_auto] sm:items-center ${
+        selected ? "border-blue-400 bg-blue-50/70 shadow-soft" : "hover:border-blue-200 hover:bg-blue-50/30"
       }`}
     >
       <button className="min-w-0 text-left" type="button" onClick={onOpen}>
-        <h3 className="truncate text-sm font-semibold hover:underline">{job.title}</h3>
+        <MatchScoreBadge />
+        <h3 className="mt-2 truncate text-sm font-semibold hover:underline">{job.title}</h3>
         <p className="mt-1 truncate text-sm text-muted-foreground">
           {job.companies?.name ?? "Unknown company"} · {job.location ?? "Location not listed"}
         </p>
@@ -694,22 +684,23 @@ function JobDetail({
   status,
   onTrack,
   userId,
-  isFollowingCompany,
-  onFollowCompanyToggled,
+  isPriorityCompany,
+  onPriorityCompanyToggled,
 }: {
   job: Job;
   status?: ApplicationStatus;
   onTrack: (status: ApplicationStatus) => void;
   userId: string;
-  isFollowingCompany: boolean;
-  onFollowCompanyToggled: (companyId: number, following: boolean) => void;
+  isPriorityCompany: boolean;
+  onPriorityCompanyToggled: (companyId: number, priority: boolean) => void;
 }) {
   return (
     <Card className="content-start">
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <CardTitle className="text-xl">{job.title}</CardTitle>
+            <MatchScoreBadge />
+            <CardTitle className="mt-2 text-xl">{job.title}</CardTitle>
             <CardDescription className="mt-1">
               {job.companies?.name ?? "Unknown company"} · {job.location ?? "Location not listed"} ·{" "}
               {formatPosted(job.posted_at)}
@@ -718,8 +709,8 @@ function JobDetail({
               <FollowCompanyButton
                 companyId={job.company_id}
                 companyName={job.companies?.name ?? "this company"}
-                isActive={isFollowingCompany}
-                onToggled={onFollowCompanyToggled}
+                isActive={isPriorityCompany}
+                onToggled={onPriorityCompanyToggled}
                 userId={userId}
               />
             </div>
@@ -767,135 +758,109 @@ function JobDetail({
   );
 }
 
-function TrackerView({
-  title, description, rows, total, view, search, onSearch, workMode, onWorkMode,
-  status, onStatus, sort, onSort, busyJobId, onChange, onOpen, onRemove,
-}: {
-  title: string;
-  description: string;
-  rows: Application[];
-  total: number;
-  view: "saved" | "applications";
-  search: string;
-  onSearch: (value: string) => void;
-  workMode: WorkModeFilter;
-  onWorkMode: (value: WorkModeFilter) => void;
-  status: string;
-  onStatus: (value: string) => void;
-  sort: string;
-  onSort: (value: string) => void;
-  busyJobId: number | null;
-  onChange: (jobId: number, status: ApplicationStatus) => void;
-  onOpen: (jobId: number) => void;
-  onRemove: (applicationId: number, jobId: number) => void;
-}) {
+function UnavailableMatchFilter({ id }: { id: string }) {
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-2xl font-semibold">{title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-      </div>
-      <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <label className="grid min-w-[180px] flex-1 gap-1 text-xs font-medium">
-            Keyword or company
-            <Input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search tracked jobs" />
-          </label>
-          {view === "applications" ? (
-            <label className="grid gap-1 text-xs font-medium">
-              Status
-              <select aria-label="Filter by status" className="h-10 rounded-md border bg-card px-3 text-sm" value={status} onChange={(event) => onStatus(event.target.value)}>
-                <option value="all">All statuses</option>
-                {TRACKER_COLUMNS.filter((column) => column.status !== "saved").map((column) => (
-                  <option key={column.status} value={column.status}>{column.label}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <label className="grid gap-1 text-xs font-medium">
-            Work mode
-            <select aria-label="Filter by work mode" className="h-10 rounded-md border bg-card px-3 text-sm" value={workMode} onChange={(event) => onWorkMode(event.target.value as WorkModeFilter)}>
-              {WORK_MODE_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}
-            </select>
-          </label>
-          <Button variant="ghost" size="sm" onClick={() => { onSearch(""); onStatus("all"); onWorkMode("all"); }}>Clear filters</Button>
-        </CardContent>
-      </Card>
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <p className="font-medium">{rows.length} of {total} {view === "saved" ? "saved jobs" : "applications"}</p>
-        <label className="flex items-center gap-2">
-          <span className="text-muted-foreground">Sort</span>
-          <select aria-label="Sort tracked jobs" className="h-9 rounded-md border bg-card px-2" value={sort} onChange={(event) => onSort(event.target.value)}>
-            <option value="recent">Recently updated</option>
-            <option value="title">Job title</option>
-          </select>
-        </label>
-      </div>
-      {rows.length === 0 ? (
-        <Card><CardContent className="p-8"><EmptyText text={total === 0
-          ? view === "saved" ? "No saved jobs yet. Save a posting from Jobs to see it here." : "No applications yet. Change a job's status to Applied to see it here."
-          : "No tracked jobs match these filters."} /></CardContent></Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {rows.map((app) => (
-            <TrackerCard
-              app={app}
-              key={app.id}
-              busy={busyJobId === app.job_id}
-              onChange={(nextStatus) => onChange(app.job_id, nextStatus)}
-              onOpen={() => onOpen(app.job_id)}
-              onRemove={() => onRemove(app.id, app.job_id)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+      Match score
+      <select aria-label="Filter by match score (not available yet)" aria-describedby={`${id}-match-score-help`} className="h-10 rounded-md border bg-muted px-3 text-sm" disabled value="unavailable">
+        <option value="unavailable">Scores not available yet</option>
+      </select>
+      <span id={`${id}-match-score-help`} className="sr-only">Match scoring has not been implemented for this project yet.</span>
+    </label>
   );
 }
 
-function TrackerCard({
-  app,
-  busy,
-  onChange,
-  onOpen,
-  onRemove,
-}: {
-  app: Application;
-  busy: boolean;
-  onChange: (status: ApplicationStatus) => void;
-  onOpen: () => void;
-  onRemove: () => void;
+function LocationControls({ filter, onFilter, query, onQuery, preferred }: {
+  filter: LocationFilter; onFilter: (value: LocationFilter) => void;
+  query: string; onQuery: (value: string) => void; preferred: string | null;
 }) {
-  return (
-    <article className="flex flex-col gap-3 rounded-md border bg-card p-4 text-sm">
-      <div>
-        <h3 className="font-semibold">{app.jobs?.title ?? "Job no longer listed"}</h3>
-        <p className="mt-1 text-muted-foreground">{app.jobs?.companies?.name ?? "Unknown company"} · {app.jobs?.location ?? "Location not listed"}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{WORK_MODE_LABELS[app.jobs?.work_mode ?? "unknown"]} · {formatPosted(app.jobs?.posted_at ?? null)}</p>
-      </div>
-      <label className="grid gap-1 text-xs font-medium">
-        Application status
-        <select
-          aria-label={`Status for ${app.jobs?.title ?? "tracked job"}`}
-          className="h-9 rounded-md border bg-card px-2 text-sm"
-          disabled={busy}
-          value={normalizeStatus(app.status)}
-          onChange={(event) => onChange(event.target.value as ApplicationStatus)}
-        >
-          {TRACKER_COLUMNS.map((column) => <option key={column.status} value={column.status}>{column.label}</option>)}
+  return <div className="grid gap-1 text-xs font-medium">
+    <label className="grid gap-1">Location
+      <select aria-label="Filter by location" className="h-10 rounded-md border bg-card px-3 text-sm" value={filter} onChange={(event) => onFilter(event.target.value as LocationFilter)}>
+        <option value="any">Anywhere</option>
+        <option value="near_me" disabled={!preferred?.trim()}>Near my preferred location</option>
+        <option value="custom">Enter a location</option>
+      </select>
+    </label>
+    {filter === "custom" && <Input aria-label="City or location" placeholder="City, state, or Remote" value={query} onChange={(event) => onQuery(event.target.value)} />}
+    {filter === "near_me" && <span className="max-w-56 font-normal text-muted-foreground">Matches “{preferred}” by city name, not distance.</span>}
+  </div>;
+}
+
+function TrackerView({ rows, allRows, search, onSearch, workMode, onWorkMode, postedDate, onPostedDate,
+  location, onLocation, locationQuery, onLocationQuery, preferredLocation, status, onStatus,
+  sort, onSort, busyJobId, onChange, onOpen, onRemove,
+}: {
+  rows: Application[]; allRows: Application[]; search: string; onSearch: (value: string) => void;
+  workMode: WorkModeFilter; onWorkMode: (value: WorkModeFilter) => void;
+  postedDate: PostedDateFilter; onPostedDate: (value: PostedDateFilter) => void;
+  location: LocationFilter; onLocation: (value: LocationFilter) => void;
+  locationQuery: string; onLocationQuery: (value: string) => void; preferredLocation: string | null;
+  status: string; onStatus: (value: string) => void; sort: string; onSort: (value: string) => void;
+  busyJobId: number | null; onChange: (jobId: number, status: ApplicationStatus) => void;
+  onOpen: (jobId: number) => void; onRemove: (applicationId: number, jobId: number) => void;
+}) {
+  return <div className="space-y-5">
+    <div><h2 className="text-2xl font-semibold">Tracker</h2>
+      <p className="mt-1 text-sm text-muted-foreground">Saved jobs and applications in one place. Use a row’s status menu to move it.</p>
+    </div>
+    <div className="flex flex-wrap gap-2 border-b" role="group" aria-label="Filter tracker by status">
+      {[{ status: "all", label: "All" }, ...TRACKER_COLUMNS].map((column) => {
+        const count = column.status === "all" ? allRows.length : allRows.filter((app) => normalizeStatus(app.status) === column.status).length;
+        return <button key={column.status} type="button" aria-pressed={status === column.status}
+          className={`border-b-2 px-3 py-2 text-sm font-medium ${status === column.status ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          onClick={() => onStatus(column.status)}>{column.label} <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">{count}</span></button>;
+      })}
+    </div>
+    <Card><CardContent className="flex flex-wrap items-end gap-3 p-4">
+      <label className="grid min-w-[180px] flex-1 gap-1 text-xs font-medium">Keyword or company
+        <Input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search company, role, or location" />
+      </label>
+      <label className="grid gap-1 text-xs font-medium">Work mode
+        <select className="h-10 rounded-md border bg-card px-3 text-sm" value={workMode} onChange={(event) => onWorkMode(event.target.value as WorkModeFilter)}>
+          {WORK_MODE_FILTERS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
         </select>
       </label>
-      <div className="mt-auto flex items-center justify-between gap-2 border-t pt-3">
-        <span className="text-xs text-muted-foreground">Updated {new Date(app.updated_at).toLocaleDateString()}</span>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => {
-            if (window.confirm("Remove this job from your tracker?")) onRemove();
-          }}>Remove</Button>
-          <Button size="sm" disabled={busy} onClick={onOpen}>View job</Button>
-        </div>
-      </div>
-    </article>
-  );
+      <label className="grid gap-1 text-xs font-medium">Date posted
+        <select className="h-10 rounded-md border bg-card px-3 text-sm" value={postedDate} onChange={(event) => onPostedDate(event.target.value as PostedDateFilter)}>
+          {POSTED_DATE_FILTERS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
+      </label>
+      <LocationControls filter={location} onFilter={onLocation} query={locationQuery} onQuery={onLocationQuery} preferred={preferredLocation} />
+      <UnavailableMatchFilter id="tracker" />
+      <Button variant="ghost" size="sm" onClick={() => { onSearch(""); onStatus("all"); onWorkMode("all"); onPostedDate("any"); onLocation("any"); onLocationQuery(""); }}>Clear filters</Button>
+    </CardContent></Card>
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <p className="font-medium">{rows.length} of {allRows.length} tracked jobs</p>
+      <label className="flex items-center gap-2">Sort
+        <select aria-label="Sort tracked jobs" className="h-9 rounded-md border bg-card px-2" value={sort} onChange={(event) => onSort(event.target.value)}>
+          <option value="recent">Recently updated</option><option value="title">Job title</option><option value="company">Company</option>
+        </select>
+      </label>
+    </div>
+    <Card><CardContent className="p-0">
+      {!rows.length ? <div className="p-8"><EmptyText text={allRows.length ? "No tracked jobs match these filters." : "Save a posting from Jobs to start tracking it."} /></div> :
+      <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm">
+        <thead className="bg-muted/70 text-muted-foreground"><tr>
+          <th className="px-4 py-3 font-medium">Company</th><th className="px-4 py-3 font-medium">Role</th>
+          <th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium">Match</th>
+          <th className="px-4 py-3 font-medium">Last update</th><th className="px-4 py-3 font-medium">Location</th>
+          <th className="px-4 py-3 font-medium">Actions</th>
+        </tr></thead><tbody>
+          {rows.map((app) => <tr className="border-t hover:bg-blue-50/40" key={app.id}>
+            <td className="px-4 py-3 font-semibold">{app.jobs?.companies?.name ?? "Unknown company"}</td>
+            <td className="min-w-[180px] px-4 py-3"><button className="text-left font-medium text-primary hover:underline" onClick={() => onOpen(app.job_id)}>{app.jobs?.title ?? "Job no longer listed"}</button></td>
+            <td className="px-4 py-3"><select aria-label={`Status for ${app.jobs?.title ?? "tracked job"}`} className="h-9 rounded-md border bg-card px-2" disabled={busyJobId === app.job_id} value={normalizeStatus(app.status)} onChange={(event) => onChange(app.job_id, event.target.value as ApplicationStatus)}>
+              {TRACKER_COLUMNS.map((column) => <option key={column.status} value={column.status}>{column.label}</option>)}
+            </select></td>
+            <td className="px-4 py-3 text-muted-foreground" title="Match scoring is not available yet">Pending</td>
+            <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{new Date(app.updated_at).toLocaleDateString()}</td>
+            <td className="max-w-[180px] px-4 py-3 text-muted-foreground">{app.jobs?.location ?? "Not listed"}</td>
+            <td className="whitespace-nowrap px-4 py-3"><Button size="sm" variant="ghost" disabled={busyJobId === app.job_id} onClick={() => { if (window.confirm("Remove this job from your tracker?")) onRemove(app.id, app.job_id); }}>Remove</Button></td>
+          </tr>)}
+        </tbody></table></div>}
+    </CardContent></Card>
+  </div>;
 }
 
 function SetupMessage() {

@@ -1,24 +1,18 @@
 import {
   Briefcase,
-  Building2,
   CheckCircle2,
   ClipboardList,
-  Bookmark,
   LayoutDashboard,
-  Settings,
+  SlidersHorizontal,
   Target,
-  UserRound,
 } from "lucide-react";
 
 export const navItems = [
   { label: "Dashboard", icon: LayoutDashboard },
   { label: "Jobs", icon: Briefcase },
-  { label: "Saved", icon: Bookmark },
-  { label: "Applications", icon: ClipboardList },
+  { label: "Tracker", icon: ClipboardList },
   { label: "Skills", icon: Target },
-  { label: "Companies", icon: Building2 },
-  { label: "Profile", icon: UserRound },
-  { label: "Settings", icon: Settings },
+  { label: "Personalization", icon: SlidersHorizontal },
 ];
 
 export const metrics = [

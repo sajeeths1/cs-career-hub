@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { fetchNotificationSettings, saveNotificationSettings } from "@/lib/data";
 import type { DigestFrequency, NotificationSettings } from "@/lib/types";
 
-/** Notification cadence preferences. Following/prioritizing companies lives in its own tab. */
+/** Notification cadence preferences, displayed beside company choices. */
 export function NotificationSettingsTab({ userId }: { userId: string }) {
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,7 +39,7 @@ export function NotificationSettingsTab({ userId }: { userId: string }) {
         email_enabled: settings.email_enabled,
         instant_priority_alerts: settings.instant_priority_alerts,
         digest_frequency: settings.digest_frequency,
-        followed_digest_frequency: settings.followed_digest_frequency,
+        followed_digest_frequency: "off",
         target_role_digest_frequency: settings.target_role_digest_frequency,
       });
       setSaveStatus({ text: "Preferences saved.", isError: false });
@@ -63,7 +63,7 @@ export function NotificationSettingsTab({ userId }: { userId: string }) {
         <CardHeader>
           <CardTitle>Notification preferences</CardTitle>
           <CardDescription>
-            Control how often you hear about new roles, by category. Follow or prioritize companies in the Companies tab.
+            Control how often you hear about new roles. Follow or prioritize companies alongside these preferences.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
@@ -96,18 +96,12 @@ export function NotificationSettingsTab({ userId }: { userId: string }) {
               />
               <DigestFrequencyField
                 disabled={!settings.email_enabled}
-                label="Companies you follow"
-                onChange={(followed_digest_frequency) => updateSettings({ followed_digest_frequency })}
-                value={settings.followed_digest_frequency}
-              />
-              <DigestFrequencyField
-                disabled={!settings.email_enabled}
                 label="New jobs matching your target roles"
                 onChange={(target_role_digest_frequency) => updateSettings({ target_role_digest_frequency })}
                 value={settings.target_role_digest_frequency}
               />
               <p className="text-xs text-muted-foreground">
-                Target roles come from your Profile. A digest bundles anything not already sent as an instant alert.
+                Target roles come from your profile above. A digest bundles anything not already sent as an instant alert.
               </p>
               <div className="flex items-center gap-3">
                 <Button disabled={saving} onClick={savePreferences}>
