@@ -71,8 +71,8 @@ export type SkillOverview = {
 };
 export type RankedSkill = SkillDemand & { skill: Skill; known: boolean };
 
-// Notifications: priority companies, preferences and the in-app feed (migrations 003, 006).
-export type Company = { id: number; name: string };
+// Notifications: priority companies, preferences and the in-app feed (migrations 003, 006, 009).
+export type Company = { id: number; name: string; logo_url: string | null };
 
 export type DigestFrequency = "daily" | "weekly" | "off";
 
@@ -86,6 +86,7 @@ export type NotificationSettings = {
 };
 
 export type NotificationSource = "priority_company" | "followed_company" | "target_role";
+export type NotificationKind = "new_posting" | "closing_soon";
 
 export type NotificationRow = {
   id: number;
@@ -93,6 +94,7 @@ export type NotificationRow = {
   created_at: string;
   read_at: string | null;
   source: NotificationSource;
+  kind: NotificationKind;
   jobs: { title: string; url: string } | null;
-  companies: { name: string } | null;
+  companies: { name: string; logo_url: string | null } | null;
 };
