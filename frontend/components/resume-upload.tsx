@@ -15,9 +15,10 @@ type ResumeUploadProps = {
   result: ParsedResume | null;
   onResult: (result: ParsedResume | null) => void;
   onProfileDraft: (draft: ResumeDraft) => void;
+  onSkillsSaved?: () => void;
 };
 
-export function ResumeUpload({ userId, compact = false, result, onResult, onProfileDraft }: ResumeUploadProps) {
+export function ResumeUpload({ userId, compact = false, result, onResult, onProfileDraft, onSkillsSaved }: ResumeUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,7 +65,8 @@ export function ResumeUpload({ userId, compact = false, result, onResult, onProf
     try {
       await addResumeSkills(userId, selected);
       setSelected([]);
-      setNotice("Selected skills added. They will be included when you open Skills.");
+      onSkillsSaved?.();
+      setNotice("Selected skills added to My skills.");
     } catch (err) { setError((err as Error).message); }
     finally { setSaving(false); }
   }
@@ -72,19 +74,20 @@ export function ResumeUpload({ userId, compact = false, result, onResult, onProf
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Resume center</CardTitle>
+        <CardTitle>Add skills from your resume</CardTitle>
         <CardDescription>
-          Extract details from your resume, including scanned pages. Review suggestions before saving.
+          We read your resume to suggest skills. Only the skills you confirm are saved; the file itself is not stored.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <button
-          className={cn("flex w-full flex-col items-center justify-center rounded-lg border border-dashed bg-muted/45 px-4 py-8 text-center transition-colors hover:bg-muted disabled:opacity-50", compact && "py-6")}
+          className={cn("flex w-full items-center justify-between gap-4 rounded-lg border border-dashed border-blue-200 bg-blue-50/50 px-4 py-5 text-left transition-colors hover:bg-blue-50 disabled:opacity-50", compact && "py-4")}
           type="button" disabled={busy || saving} onClick={() => inputRef.current?.click()}
         >
-          <Upload className="mb-3 h-6 w-6 text-muted-foreground" aria-hidden="true" />
-          <span className="text-sm font-semibold">{busy ? "Reading resume…" : result ? "Choose another resume" : "Upload and parse resume"}</span>
-          <span className="mt-1 text-xs text-muted-foreground">PDF, DOCX, PNG or JPEG · Up to 5 MB / 5 PDF pages</span>
+          <Upload className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+          <span className="flex-1"><span className="block text-sm font-semibold">{busy ? "Reading resume…" : result ? "Choose another resume" : "Choose a resume"}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">PDF, DOCX, PNG or JPEG · Up to 5 MB / 5 PDF pages</span></span>
+          <span className="rounded-md border bg-card px-3 py-1.5 text-xs font-medium">Browse</span>
         </button>
         <input ref={inputRef} aria-label="Choose resume" className="hidden" type="file" accept=".pdf,.docx,.png,.jpg,.jpeg" onChange={(event) => {
           void upload(event.target.files?.[0]); event.target.value = "";
@@ -99,22 +102,22 @@ export function ResumeUpload({ userId, compact = false, result, onResult, onProf
         {result && <div className="space-y-4">
           <p className="text-xs text-muted-foreground">{result.metadata.ocr_pages ? `OCR used on ${result.metadata.ocr_pages} page(s).` : "Read embedded document text."} Suggestions may contain mistakes; review them carefully.</p>
           {result.warnings.map(warning => <p role="status" className="text-sm text-amber-700" key={warning}>{warning}</p>)}
-          <fieldset className="space-y-3">
-            <legend className="mb-2 text-sm font-semibold">Review profile details</legend>
-            {([['full_name', 'Name'], ['major', 'Major'], ['school', 'School']] as const).map(([field, label]) => <label key={field} className="grid gap-1 text-sm">{label}
+          <fieldset disabled={saving} className="space-y-2">
+            <legend className="mb-2 text-sm font-semibold">Suggested skills · {result.skills.length} found</legend>
+            <p className="text-xs text-muted-foreground">Check skills you actually have. A mention alone does not confirm proficiency.</p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{result.skills.length ? result.skills.map(skill => <label className="flex items-center gap-2 text-sm" key={skill.id}>
+              <input type="checkbox" checked={selected.includes(skill.id)} onChange={event => setSelected(previous => event.target.checked ? [...previous, skill.id] : previous.filter(id => id !== skill.id))} />{skill.name}
+            </label>) : <p className="text-sm text-muted-foreground">No matches in the current skill catalog. You can add skills below.</p>}</div>
+            <Button type="button" disabled={saving || !selected.length} onClick={() => void saveSkills()}>{saving ? "Adding skills…" : `Add ${selected.length} ${selected.length === 1 ? "skill" : "skills"} to my profile`}</Button>
+          </fieldset>
+          <details className="rounded-md border p-3 text-sm"><summary className="cursor-pointer font-medium">Use resume details in your profile</summary>
+            <div className="mt-3 grid max-w-xl gap-3">{([['full_name', 'Name'], ['major', 'Major'], ['school', 'School']] as const).map(([field, label]) => <label key={field} className="grid gap-1 text-sm">{label}
               <Input value={draft[field]} maxLength={field === "school" ? 200 : 100} onChange={event => setDraft(previous => ({ ...previous, [field]: event.target.value }))} />
             </label>)}
-            <Button type="button" disabled={!Object.values(draft).some(value => value.trim())} onClick={() => onProfileDraft({ full_name: draft.full_name.trim(), major: draft.major.trim(), school: draft.school.trim() })}>Fill profile form</Button>
-            <p className="text-xs text-muted-foreground">Fills nonempty details for editing. Use Save profile to confirm. Choose your preferred location, target roles and graduation year yourself.</p>
-          </fieldset>
-          <fieldset disabled={saving} className="space-y-2">
-            <legend className="mb-2 text-sm font-semibold">Skills mentioned in your resume</legend>
-            <p className="text-xs text-muted-foreground">Select skills you actually have. A mention alone does not confirm proficiency.</p>
-            {result.skills.length ? result.skills.map(skill => <label className="flex items-center gap-2 text-sm" key={skill.id}>
-              <input type="checkbox" checked={selected.includes(skill.id)} onChange={event => setSelected(previous => event.target.checked ? [...previous, skill.id] : previous.filter(id => id !== skill.id))} />{skill.name}
-            </label>) : <p className="text-sm text-muted-foreground">No matches in the current skill catalog. You can manage your skills in the Skills tab.</p>}
-            <Button type="button" disabled={saving || !selected.length} onClick={() => void saveSkills()}>{saving ? "Adding skills…" : "Add selected skills"}</Button>
-          </fieldset>
+              <Button type="button" className="w-fit" disabled={!Object.values(draft).some(value => value.trim())} onClick={() => onProfileDraft({ full_name: draft.full_name.trim(), major: draft.major.trim(), school: draft.school.trim() })}>Fill profile form</Button>
+              <p className="text-xs text-muted-foreground">Review and save the profile form in Personalization. Set your target roles and preferred location there.</p>
+            </div>
+          </details>
           <details className="rounded-md border p-3 text-sm">
             <summary className="cursor-pointer font-medium">Contact details and resume sections</summary>
             <dl className="mt-3 space-y-2 break-words">

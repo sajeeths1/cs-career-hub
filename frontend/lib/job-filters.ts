@@ -1,5 +1,6 @@
 /** Jobs store posted_at as a date, so filters use local calendar days. */
 export type PostedDateFilter = "any" | "today" | "week" | "month";
+export type LocationFilter = "any" | "near_me" | "custom";
 
 export const POSTED_DATE_FILTERS: { value: PostedDateFilter; label: string }[] = [
   { value: "any", label: "Any date" },
@@ -22,4 +23,24 @@ export function matchesPostedDate(
   const days = filter === "today" ? 1 : filter === "week" ? 7 : 30;
   const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - days + 1);
   return postedAt >= localDate(cutoff) && postedAt <= localDate(today);
+}
+
+/** "Near me" uses the student's saved preferred city, not device GPS or distance. */
+export function matchesLocation(
+  jobLocation: string | null,
+  filter: LocationFilter,
+  preferredLocation: string | null,
+  customLocation: string,
+): boolean {
+  if (filter === "any") return true;
+  const query = filter === "near_me"
+    ? (preferredLocation ?? "").split(/\s+or\s+|;/i)[0].trim()
+    : customLocation.trim();
+  if (!query) return false;
+  const location = (jobLocation ?? "").toLocaleLowerCase();
+  const preferred = query.toLocaleLowerCase();
+  if (location.includes(preferred)) return true;
+  // A preferred "Raleigh, NC" also matches postings that only name Raleigh.
+  const city = preferred.split(",")[0].trim();
+  return filter === "near_me" && city.length >= 3 && location.includes(city);
 }

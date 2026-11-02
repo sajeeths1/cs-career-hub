@@ -5,19 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { FollowCompanyButton } from "@/components/follow-company-button";
-import { fetchCompanies, fetchFollowedCompanyIds, fetchPriorityCompanyIds } from "@/lib/data";
+import { fetchCompanies, fetchFollowedCompanyIds, fetchPriorityCompanyIds, setFollowedCompany } from "@/lib/data";
 import { MAX_PRIORITY_COMPANIES } from "@/lib/notifications";
 import type { Company } from "@/lib/types";
 
-/** Follow companies for a default digest, or prioritize up to 10 of them for
- * instant alerts. Notification cadence itself is configured in Settings. */
-export function CompaniesTab({ userId }: { userId: string }) {
+/** Prioritize up to 10 companies for alerts. Old follows can be cleared. */
+export function CompaniesTab({ userId, onPriorityToggled }: { userId: string; onPriorityToggled?: (companyId: number, priority: boolean) => void }) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [followedIds, setFollowedIds] = useState<number[]>([]);
   const [priorityIds, setPriorityIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [clearing, setClearing] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -41,16 +41,24 @@ export function CompaniesTab({ userId }: { userId: string }) {
     return term ? companies.filter((company) => company.name.toLowerCase().includes(term)) : companies;
   }, [companies, search]);
 
-  function handleFollowToggled(companyId: number, following: boolean) {
-    setFollowedIds((ids) => (following ? [...ids, companyId] : ids.filter((id) => id !== companyId)));
-    // Unfollowing also drops priority status server-side; mirror that locally.
-    if (!following) setPriorityIds((ids) => ids.filter((id) => id !== companyId));
-  }
-
   function handlePriorityToggled(companyId: number, priority: boolean) {
     setPriorityIds((ids) => (priority ? [...ids, companyId] : ids.filter((id) => id !== companyId)));
-    // Marking a company priority also follows it server-side; mirror that locally.
-    if (priority) setFollowedIds((ids) => (ids.includes(companyId) ? ids : [...ids, companyId]));
+    if (!priority) setFollowedIds((ids) => ids.filter((id) => id !== companyId));
+    onPriorityToggled?.(companyId, priority);
+  }
+
+  const oldFollows = followedIds.filter((id) => !priorityIds.includes(id));
+
+  async function clearOldFollows() {
+    setClearing(true);
+    setLoadError(null);
+    try {
+      for (const companyId of oldFollows) await setFollowedCompany(userId, companyId, false);
+      setFollowedIds((ids) => ids.filter((id) => !oldFollows.includes(id)));
+    } catch (err) {
+      setLoadError((err as Error).message);
+      setAttempt((n) => n + 1);
+    } finally { setClearing(false); }
   }
 
   return (
@@ -64,10 +72,9 @@ export function CompaniesTab({ userId }: { userId: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Companies</CardTitle>
+          <CardTitle>Priority companies</CardTitle>
           <CardDescription>
-            Follow any number of companies for a default digest. Prioritize up to {MAX_PRIORITY_COMPANIES} of them
-            for an instant email the moment they post. Notification cadence is in Settings.
+            Choose up to {MAX_PRIORITY_COMPANIES} companies for job alerts. Alert timing is configured alongside this list.
             {" "}{priorityIds.length} / {MAX_PRIORITY_COMPANIES} prioritized.
           </CardDescription>
         </CardHeader>
@@ -75,6 +82,10 @@ export function CompaniesTab({ userId }: { userId: string }) {
           {loading ? <p role="status" className="text-sm text-muted-foreground">Loading companies…</p> : null}
           {!loading ? (
             <>
+              {oldFollows.length > 0 && <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+                <p className="flex-1">You still have {oldFollows.length} company {oldFollows.length === 1 ? "follow" : "follows"} from the old setup. Remove them to stop their digest alerts.</p>
+                <Button variant="outline" size="sm" disabled={clearing} onClick={() => void clearOldFollows()}>{clearing ? "Removing…" : "Remove old follows"}</Button>
+              </div>}
               <Input
                 aria-label="Find a company"
                 placeholder="Find a company"
@@ -91,16 +102,7 @@ export function CompaniesTab({ userId }: { userId: string }) {
                     <FollowCompanyButton
                       companyId={company.id}
                       companyName={company.name}
-                      isActive={followedIds.includes(company.id)}
-                      mode="follow"
-                      onToggled={handleFollowToggled}
-                      userId={userId}
-                    />
-                    <FollowCompanyButton
-                      companyId={company.id}
-                      companyName={company.name}
                       isActive={priorityIds.includes(company.id)}
-                      mode="priority"
                       onToggled={handlePriorityToggled}
                       userId={userId}
                     />
