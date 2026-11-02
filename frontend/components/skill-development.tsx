@@ -4,14 +4,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ResumeUpload } from "@/components/resume-upload";
 import { fetchSkillDevelopment, saveLearningGoal, setKnownSkill } from "@/lib/data";
+import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { externalUrl, goalFor, rankSkills, resourcesFor, type LearningGoal, type LearningResource, type Skill } from "@/lib/skill-development";
 import type { Job } from "@/lib/types";
 
 type SkillData = Awaited<ReturnType<typeof fetchSkillDevelopment>>;
 
-export function SkillDevelopment({ userId, jobs, jobsLoading }: {
+export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onResumeResult, onProfileDraft }: {
   userId: string; jobs: Job[]; jobsLoading: boolean;
+  resumeResult: ParsedResume | null; onResumeResult: (result: ParsedResume | null) => void;
+  onProfileDraft: (draft: ResumeDraft) => void;
 }) {
   const [data, setData] = useState<SkillData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,10 +67,15 @@ export function SkillDevelopment({ userId, jobs, jobsLoading }: {
   }
 
   return <div className="grid min-w-0 grid-cols-1 gap-6">
+    <div><h2 className="text-2xl font-semibold">Skill development</h2>
+      <p className="mt-1 text-sm text-muted-foreground">Build a learning plan around the skills in real job postings.</p>
+    </div>
+    <ResumeUpload userId={userId} compact result={resumeResult} onResult={onResumeResult}
+      onProfileDraft={onProfileDraft} onSkillsSaved={() => setAttempt((n) => n + 1)} />
     <Card>
       <CardHeader>
-        <CardTitle>Skill development</CardTitle>
-        <CardDescription>Build a learning plan around the skills in real job postings.</CardDescription>
+        <CardTitle>My skills</CardTitle>
+        <CardDescription>Select skills you know or review suggestions from your resume above.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
         {error && <div role="alert" className="grid gap-2 text-sm text-red-600">
@@ -78,7 +87,7 @@ export function SkillDevelopment({ userId, jobs, jobsLoading }: {
         {data && <fieldset disabled={busy || loading} className="grid min-w-0 gap-3">
           <legend className="mb-3 text-sm font-semibold">My skills · {data.knownIds.length} selected</legend>
           <Input aria-label="Find a skill" placeholder="Find a skill" value={skillSearch} onChange={(event) => setSkillSearch(event.target.value)} />
-          <div className="flex flex-wrap gap-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {data.skills.filter((skill) => skill.name.toLowerCase().includes(skillSearch.trim().toLowerCase())).map((skill) =>
               <label key={skill.id} className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={data.knownIds.includes(skill.id)} onChange={(event) => toggleSkill(skill, event.target.checked)} />{skill.name}

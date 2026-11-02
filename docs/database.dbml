@@ -17,6 +17,7 @@ Table companies {
   website text
   ats_type text [note: 'e.g. greenhouse']
   ats_slug text [note: 'company name on that job board, e.g. stripe']
+  logo_url text [note: 'Nullable; populated for starter companies via a public logo lookup']
 }
 
 Table jobs {
@@ -141,9 +142,10 @@ Table notifications {
   created_at timestamptz [not null]
   read_at timestamptz
   emailed_at timestamptz [note: 'Set once included in an instant alert or digest email']
-  source text [not null, default: 'priority_company', note: 'priority_company, followed_company or target_role']
-  indexes { (user_id, job_id) [unique] }
-  Note: 'One row per new posting relevant to the user, deduped by (user, job); source records which rule created it'
+  source text [not null, default: 'priority_company', note: 'priority_company, followed_company or target_role; WHY the user sees this']
+  kind text [not null, default: 'new_posting', note: 'new_posting or closing_soon; WHAT happened']
+  indexes { (user_id, job_id, kind) [unique] }
+  Note: 'One row per (user, job, kind); a job can notify the same user once as new and later once as closing soon'
 }
 
 Ref: job_skills.job_id > jobs.id [delete: cascade]

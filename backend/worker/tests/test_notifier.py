@@ -8,7 +8,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from notifier import (
+    closing_soon_email,
+    digest_email,
+    job_url,
     matches_target_roles,
+    new_job_email,
     normalize_role_text,
     notify_new_jobs,
     notify_target_role_matches,
@@ -28,6 +32,14 @@ class Query:
 
     def eq(self, key, value):
         self.filters.append(("eq", key, value))
+        return self
+
+    def gte(self, key, value):
+        self.filters.append(("gte", key, value))
+        return self
+
+    def lt(self, key, value):
+        self.filters.append(("lt", key, value))
         return self
 
     def in_(self, key, values):
@@ -51,6 +63,10 @@ class Query:
     def _match(self, row):
         for kind, key, value in self.filters:
             if kind == "eq" and row.get(key) != value:
+                return False
+            if kind == "gte" and row.get(key) < value:
+                return False
+            if kind == "lt" and row.get(key) >= value:
                 return False
             if kind == "in" and row.get(key) not in value:
                 return False
@@ -111,7 +127,8 @@ class FakeClient:
 
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
-NEW_JOBS = [{"id": 101, "title": "Software Engineer Intern", "url": "https://example.com/101", "company_id": 1}]
+NEW_JOBS = [{"id": 101, "title": "Software Engineer Intern", "url": "https://example.com/101",
+             "company_id": 1, "location": "Remote", "posted_at": "2026-01-01"}]
 
 
 def client_with(priority_ids=(), followed_ids=(), settings_overrides=None, emails=None):
@@ -148,6 +165,66 @@ class RoleMatchingTests(unittest.TestCase):
         self.assertFalse(matches_target_roles("JavaScript Engineer", ["java"]))
 
 
+class EmailContentTests(unittest.TestCase):
+    def test_job_url_prefers_site_url_and_falls_back_to_posting(self):
+        job = {"id": 5, "url": "https://boards.example.com/5"}
+        with patch.dict("os.environ", {"SITE_URL": "https://hub.example.com/"}):
+            self.assertEqual(job_url(job), "https://hub.example.com/?job=5")
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(job_url(job), "https://boards.example.com/5")
+
+    def test_new_job_email_singular_vs_plural_subject(self):
+        subject, body = new_job_email("Acme", NEW_JOBS)
+        self.assertIn("New Job For You: Software Engineer Intern at Acme", subject)
+        self.assertIn("Software Engineer Intern", body)
+        self.assertIn('text-align:center', body)
+        self.assertNotIn(f'<a href="{NEW_JOBS[0]["url"]}">Software Engineer Intern</a>', body)
+        self.assertNotIn("<li>", body)
+        self.assertIn("View &amp; Apply", body)
+        two_jobs = NEW_JOBS + [{**NEW_JOBS[0], "id": 102, "title": "Data Intern"}]
+        subject, _ = new_job_email("Acme", two_jobs)
+        self.assertIn("2 New Jobs For You at Acme", subject)
+
+    def test_closing_soon_email_subject_and_cta(self):
+        subject, body = closing_soon_email("Acme", NEW_JOBS)
+        self.assertIn("Closing Soon", subject)
+        self.assertIn("will soon be closing applications", body)
+        self.assertIn("Closing soon", body)  # inline per-job label, not just the subject
+        self.assertNotIn("<li>", body)
+
+    def test_digest_email_lists_jobs_and_flags_closing_soon(self):
+        rows = [
+            {"kind": "new_posting", "jobs": {"id": 1, "title": "SWE Intern", "url": "x", "location": "NC"}, "companies": {"name": "Acme", "logo_url": "https://logo.example.com/acme.png"}},
+            {"kind": "closing_soon", "jobs": {"id": 2, "title": "Data Intern", "url": "x"}, "companies": {"name": "Beta"}},
+        ]
+        subject, body = digest_email("weekly", rows)
+        self.assertIn("Weekly Digest", subject)
+        self.assertIn("SWE Intern", body)
+        self.assertIn("Data Intern", body)
+        self.assertIn("Closing soon", body)
+        self.assertIn("Acme", body)
+        self.assertIn('src="https://logo.example.com/acme.png"', body)
+        self.assertNotIn("Posted", body)  # digest rows skip the posted date, per the template
+        self.assertIn("subscribed to receiving notifications from CS Career Hub", body)
+
+    def test_digest_header_subject_verb_agreement(self):
+        one = [{"kind": "new_posting", "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}]
+        _, body = digest_email("weekly", one)
+        self.assertIn("1 Job That Matches Your Preferences", body)
+        two = one + [{"kind": "new_posting", "jobs": {"id": 2, "title": "Data Intern", "url": "x"}, "companies": {"name": "Beta"}}]
+        _, body = digest_email("weekly", two)
+        self.assertIn("2 Jobs That Match Your Preferences", body)
+
+    def test_new_job_email_includes_company_logo_when_available(self):
+        _, body = new_job_email("Acme", NEW_JOBS, logo_url="https://logo.example.com/acme.png")
+        self.assertIn('src="https://logo.example.com/acme.png"', body)
+        _, body_without_logo = new_job_email("Acme", NEW_JOBS)
+        self.assertNotIn("<img", body_without_logo)
+        self.assertNotIn('<a href="x">Data Intern</a>', body)  # job titles are plain text, not links
+        self.assertNotIn("<li>", body)  # no bullet points
+        self.assertIn("View &amp; Apply", body)
+
+
 class NotifyNewJobsTests(unittest.TestCase):
     def test_no_followers_creates_nothing(self):
         client = client_with()
@@ -166,7 +243,26 @@ class NotifyNewJobsTests(unittest.TestCase):
         sent.assert_called_once()
         row = client.rows["notifications"][0]
         self.assertEqual(row["source"], "priority_company")
+        self.assertEqual(row["kind"], "new_posting")
         self.assertEqual(row["emailed_at"], NOW.isoformat())
+
+    def test_closing_soon_kind_uses_closing_soon_email(self):
+        client = client_with(priority_ids=["u1"])
+        with patch("notifier.send_email", return_value=True) as sent:
+            notify_new_jobs(client, 1, "Acme", NEW_JOBS, NOW, kind="closing_soon")
+        self.assertIn("Closing Soon", sent.call_args[0][1])
+        self.assertEqual(client.rows["notifications"][0]["kind"], "closing_soon")
+
+    def test_same_job_can_notify_once_as_new_and_once_as_closing_soon(self):
+        client = client_with(priority_ids=["u1"])
+        with patch("notifier.send_email", return_value=True) as sent:
+            notify_new_jobs(client, 1, "Acme", NEW_JOBS, NOW, kind="new_posting")
+            result = notify_new_jobs(client, 1, "Acme", NEW_JOBS, NOW, kind="closing_soon")
+        self.assertEqual(result, {"notified": 1, "emailed": 1})
+        self.assertEqual(sent.call_count, 2)
+        self.assertEqual(len(client.rows["notifications"]), 2)
+        kinds = sorted(row["kind"] for row in client.rows["notifications"])
+        self.assertEqual(kinds, ["closing_soon", "new_posting"])
 
     def test_followed_only_gets_notification_without_instant_email(self):
         client = client_with(followed_ids=["u1"])
@@ -223,7 +319,13 @@ class NotifyTargetRoleMatchesTests(unittest.TestCase):
         result = notify_target_role_matches(client, jobs, NOW)
         self.assertEqual(result, {"notified": 1})
         row = client.rows["notifications"][0]
-        self.assertEqual(row, {"user_id": "u1", "job_id": 1, "company_id": 5, "source": "target_role", "id": row["id"]})
+        self.assertEqual(row["kind"], "new_posting")
+        self.assertEqual((row["user_id"], row["job_id"], row["company_id"], row["source"]), ("u1", 1, 5, "target_role"))
+
+    def test_closing_soon_kind_is_stored(self):
+        client = FakeClient({"profiles": [{"id": "u1", "target_roles": "Backend"}], "notifications": []})
+        notify_target_role_matches(client, [{"id": 1, "title": "Backend Engineer", "company_id": 5}], NOW, kind="closing_soon")
+        self.assertEqual(client.rows["notifications"][0]["kind"], "closing_soon")
 
     def test_never_sends_an_instant_email(self):
         client = FakeClient({"profiles": [{"id": "u1", "target_roles": "Backend"}], "notifications": []},
@@ -252,12 +354,12 @@ class RunDigestTests(unittest.TestCase):
             "notification_settings": [{"user_id": "u1", "email_enabled": True, "digest_frequency": "weekly",
                                         "followed_digest_frequency": "weekly", "target_role_digest_frequency": "off"}],
             "notifications": [
-                {"id": 1, "user_id": "u1", "source": "priority_company", "emailed_at": None,
-                 "jobs": {"title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}},
-                {"id": 2, "user_id": "u1", "source": "followed_company", "emailed_at": None,
-                 "jobs": {"title": "Data Intern", "url": "x"}, "companies": {"name": "Beta"}},
-                {"id": 3, "user_id": "u1", "source": "target_role", "emailed_at": None,
-                 "jobs": {"title": "ML Intern", "url": "x"}, "companies": {"name": "Gamma"}},
+                {"id": 1, "user_id": "u1", "source": "priority_company", "kind": "new_posting", "emailed_at": None,
+                 "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}},
+                {"id": 2, "user_id": "u1", "source": "followed_company", "kind": "new_posting", "emailed_at": None,
+                 "jobs": {"id": 2, "title": "Data Intern", "url": "x"}, "companies": {"name": "Beta"}},
+                {"id": 3, "user_id": "u1", "source": "target_role", "kind": "new_posting", "emailed_at": None,
+                 "jobs": {"id": 3, "title": "ML Intern", "url": "x"}, "companies": {"name": "Gamma"}},
             ],
         }, emails={"u1": "student@example.com"})
         with patch("notifier.send_email", return_value=True) as sent:
@@ -270,12 +372,27 @@ class RunDigestTests(unittest.TestCase):
         self.assertNotIn("ML Intern", html)
         self.assertEqual(client.rows["notifications"][2]["emailed_at"], None)
 
+    def test_user_with_no_settings_row_still_gets_a_digest_using_defaults(self):
+        # Regression test: a user who never opened Settings has no notification_settings
+        # row at all. The column defaults (digest_frequency="weekly") must still apply,
+        # not silently skip them because there's no row to match against.
+        client = FakeClient({
+            "notification_settings": [],
+            "notifications": [{"id": 1, "user_id": "u1", "source": "priority_company", "kind": "new_posting", "emailed_at": None,
+                                "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}],
+        }, emails={"u1": "student@example.com"})
+        with patch("notifier.send_email", return_value=True) as sent:
+            result = run_digest(client, "weekly", NOW)
+        sent.assert_called_once()
+        self.assertEqual(result, {"emailed_users": 1, "emailed_notifications": 1})
+        self.assertEqual(client.rows["notifications"][0]["emailed_at"], NOW.isoformat())
+
     def test_already_emailed_notifications_are_not_resent(self):
         client = FakeClient({
             "notification_settings": [{"user_id": "u1", "email_enabled": True, "digest_frequency": "daily",
                                         "followed_digest_frequency": "off", "target_role_digest_frequency": "off"}],
-            "notifications": [{"id": 1, "user_id": "u1", "source": "priority_company", "emailed_at": NOW.isoformat(),
-                                "jobs": {"title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}],
+            "notifications": [{"id": 1, "user_id": "u1", "source": "priority_company", "kind": "new_posting", "emailed_at": NOW.isoformat(),
+                                "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}],
         }, emails={"u1": "student@example.com"})
         with patch("notifier.send_email") as sent:
             result = run_digest(client, "daily", NOW)
@@ -286,8 +403,8 @@ class RunDigestTests(unittest.TestCase):
         client = FakeClient({
             "notification_settings": [{"user_id": "u1", "email_enabled": False, "digest_frequency": "daily",
                                         "followed_digest_frequency": "daily", "target_role_digest_frequency": "daily"}],
-            "notifications": [{"id": 1, "user_id": "u1", "source": "priority_company", "emailed_at": None,
-                                "jobs": {"title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}],
+            "notifications": [{"id": 1, "user_id": "u1", "source": "priority_company", "kind": "new_posting", "emailed_at": None,
+                                "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}],
         }, emails={"u1": "student@example.com"})
         with patch("notifier.send_email") as sent:
             result = run_digest(client, "daily", NOW)

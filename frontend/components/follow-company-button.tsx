@@ -1,24 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, Star, X } from "lucide-react";
+import { Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { setFollowedCompany, setPriorityCompany } from "@/lib/data";
+import { setPriorityCompany } from "@/lib/data";
 
 const TOAST_DURATION_MS = 5000;
 
-/** Toggles a company's follow status (unlimited, digest-only) or priority status
- * (max 10, instant alerts). Manages its own request state so it can be dropped
- * into any list; the parent only needs to react once it succeeds. */
+/** Single company action: prioritize up to ten for alerts. */
 export function FollowCompanyButton({
-  mode = "follow",
   userId,
   companyId,
   companyName,
   isActive,
   onToggled,
 }: {
-  mode?: "follow" | "priority";
   userId: string;
   companyId: number;
   companyName: string;
@@ -38,8 +34,7 @@ export function FollowCompanyButton({
     setBusy(true);
     setError(null);
     try {
-      const toggleFn = mode === "priority" ? setPriorityCompany : setFollowedCompany;
-      await toggleFn(userId, companyId, !isActive);
+      await setPriorityCompany(userId, companyId, !isActive);
       onToggled(companyId, !isActive);
     } catch (err) {
       setError((err as Error).message);
@@ -48,8 +43,7 @@ export function FollowCompanyButton({
     }
   }
 
-  const Icon = mode === "priority" ? Star : Bell;
-  const label = mode === "priority" ? (isActive ? "Priority" : "Prioritize") : (isActive ? "Following" : "Follow");
+  const label = isActive ? "Priority" : "Prioritize";
 
   return (
     <>
@@ -59,10 +53,10 @@ export function FollowCompanyButton({
         disabled={busy}
         size="sm"
         variant={isActive ? "default" : "outline"}
-        className={isActive && mode === "priority" ? "bg-amber-500 text-white hover:bg-amber-500/90" : undefined}
+        className={isActive ? "bg-amber-500 text-white hover:bg-amber-500/90" : undefined}
         onClick={toggle}
       >
-        <Icon className="h-3.5 w-3.5" aria-hidden="true" fill={isActive ? "currentColor" : "none"} />
+        <Star className="h-3.5 w-3.5" aria-hidden="true" fill={isActive ? "currentColor" : "none"} />
         {label}
       </Button>
       {error ? (
