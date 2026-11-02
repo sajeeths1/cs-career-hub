@@ -156,7 +156,7 @@ export async function saveLearningGoal(userId: string, skillId: number, status: 
 
 /** Companies students can follow for priority job alerts (migration 003). */
 export async function fetchCompanies(): Promise<Company[]> {
-  const { data, error } = await db().from("companies").select("id, name").order("name");
+  const { data, error } = await db().from("companies").select("id, name, logo_url").order("name");
   if (error) throw error;
   return (data ?? []) as Company[];
 }
@@ -226,7 +226,7 @@ export async function saveNotificationSettings(userId: string, values: Omit<Noti
 export async function fetchNotifications(limit = 30): Promise<NotificationRow[]> {
   const { data, error } = await db()
     .from("notifications")
-    .select("id, job_id, created_at, read_at, source, jobs(title, url), companies(name)")
+    .select("id, job_id, created_at, read_at, source, kind, jobs(title, url), companies(name, logo_url)")
     .order("created_at", { ascending: false })
     .limit(limit);
   if (error) throw error;

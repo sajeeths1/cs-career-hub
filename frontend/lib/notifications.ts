@@ -1,5 +1,5 @@
-import type { NotificationRow, NotificationSource } from "@/lib/types";
-export type { Company, DigestFrequency, NotificationRow, NotificationSettings, NotificationSource } from "@/lib/types";
+import type { NotificationKind, NotificationRow, NotificationSource } from "@/lib/types";
+export type { Company, DigestFrequency, NotificationKind, NotificationRow, NotificationSettings, NotificationSource } from "@/lib/types";
 
 export const DEFAULT_NOTIFICATION_SETTINGS = {
   email_enabled: true,
@@ -15,6 +15,11 @@ export const SOURCE_LABELS: Record<NotificationSource, string> = {
   priority_company: "Priority",
   followed_company: "Following",
   target_role: "Matches your roles",
+};
+
+export const KIND_LABELS: Record<NotificationKind, string> = {
+  new_posting: "New posting",
+  closing_soon: "Closing soon",
 };
 
 export function unreadCount(notifications: NotificationRow[]): number {
