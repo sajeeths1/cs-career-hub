@@ -7,6 +7,7 @@ import type { Company, NotificationRow, NotificationSettings } from "@/lib/notif
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications";
 import { collectRoleMatches, targetRolesQuery } from "@/lib/job-personalization";
 import { RESUME_FILENAME_HEADER } from "@/lib/resume";
+import { RESUME_LIBRARY_BUCKET, uploadResumeVersion, type StoredResume, type JobResumeChoice } from "@/lib/resume-library";
 
 function db() {
   if (!supabase) throw new Error("Supabase is not configured. Check frontend/.env.local.");
@@ -152,6 +153,13 @@ export async function setKnownSkill(userId: string, skillId: number, known: bool
   if (error) throw error;
 }
 
+/** The RPC creates the shared option and selects it for auth.uid() in one transaction. */
+export async function addKnownSkill(name: string): Promise<Skill> {
+  const { data, error } = await db().rpc("add_known_skill", { p_name: name });
+  if (error) throw error;
+  return data as Skill;
+}
+
 /** Whether the local worker has finished the student's latest upload. */
 export async function fetchResumeScanStatus(): Promise<"none" | "scanning" | "done"> {
   const { data, error } = await db().rpc("resume_scan_status");
@@ -172,7 +180,56 @@ export async function parseResume(file: File, signal: AbortSignal) {
   });
   const result = await response.json().catch(() => null);
   if (!response.ok || !result) throw new Error(result?.error ?? "Could not parse your resume. Please retry.");
+  if (!signal.aborted) {
+    try { await uploadResumeVersion(db(), data.session.user.id, file); }
+    catch { result.warnings.push("This resume could not be added to your library. Upload it again from Profile to keep a version for job applications."); }
+  }
   return result as import("./resume").ParsedResume;
+}
+
+export async function fetchResumeLibrary(userId: string) {
+  const [resumes, choices] = await Promise.all([
+    db().from("profile_resumes").select("id, name, original_filename, storage_path, mime_type, file_size_bytes, created_at, is_default").eq("user_id", userId).order("created_at", { ascending: false }),
+    db().from("application_resumes").select("job_id, resume_id").eq("user_id", userId),
+  ]);
+  if (resumes.error) throw resumes.error;
+  if (choices.error) throw choices.error;
+  return { resumes: (resumes.data ?? []) as StoredResume[], choices: (choices.data ?? []) as JobResumeChoice[] };
+}
+
+export async function uploadLibraryResume(userId: string, file: File) { return uploadResumeVersion(db(), userId, file); }
+
+export async function renameLibraryResume(id: string, name: string) {
+  const cleaned = name.trim();
+  if (!cleaned || cleaned.length > 150) throw new Error("Use a resume name of 1–150 characters.");
+  const { error } = await db().from("profile_resumes").update({ name: cleaned }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setDefaultResume(id: string) {
+  const { error } = await db().rpc("set_default_resume", { p_resume_id: id });
+  if (error) throw error;
+}
+
+export async function resumeFileUrl(resume: StoredResume, download = false) {
+  const { data, error } = await db().storage.from(RESUME_LIBRARY_BUCKET).createSignedUrl(resume.storage_path, 60,
+    download ? { download: resume.original_filename } : undefined);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+export async function removeLibraryResume(resume: StoredResume) {
+  const { error } = await db().storage.from(RESUME_LIBRARY_BUCKET).remove([resume.storage_path]);
+  if (error) throw error;
+  const removed = await db().from("profile_resumes").delete().eq("id", resume.id);
+  if (removed.error) throw removed.error;
+}
+
+export async function setJobResume(userId: string, jobId: number, resumeId: string | null) {
+  const result = resumeId
+    ? await db().from("application_resumes").upsert({ user_id: userId, job_id: jobId, resume_id: resumeId })
+    : await db().from("application_resumes").delete().eq("user_id", userId).eq("job_id", jobId);
+  if (result.error) throw result.error;
 }
 
 export async function saveLearningGoal(userId: string, skillId: number, status: LearningGoal["status"] | null) {
