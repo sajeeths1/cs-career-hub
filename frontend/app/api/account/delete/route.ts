@@ -24,7 +24,23 @@ export async function POST(request: Request) {
   const { data, error: authError } = await verifier.auth.getUser(token);
   if (authError || !data.user) return reply("Your session expired. Sign in again.", 401);
   const admin = createClient(url, adminKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { error } = await admin.auth.admin.deleteUser(data.user.id);
-  if (error) return reply("Could not delete your account. Please contact the project administrator.", 500);
+  const failed = () => reply("Could not delete your account. Please contact the project administrator.", 500);
+  // Resume files and text are personal data, so they go first and a failure stops the
+  // deletion. Files are found from both rows and the folder, so none are left behind.
+  const userId = data.user.id;
+  const storage = admin.storage.from("resumes");
+  const [rows, folder] = await Promise.all([
+    admin.from("resumes").select("storage_path").eq("user_id", userId),
+    storage.list(userId, { limit: 1000 }),
+  ]);
+  if (rows.error || folder.error) return failed();
+  const paths = new Set([
+    ...(rows.data ?? []).map((row: { storage_path: string }) => row.storage_path).filter((path: string) => !path.startsWith("not-stored/")),
+    ...(folder.data ?? []).map((file: { name: string }) => `${userId}/${file.name}`),
+  ]);
+  if (paths.size && (await storage.remove([...paths])).error) return failed();
+  if ((await admin.from("resumes").delete().eq("user_id", userId)).error) return failed();
+  const { error } = await admin.auth.admin.deleteUser(userId);
+  if (error) return failed();
   return Response.json({ deleted: true }, { headers: { "Cache-Control": "no-store" } });
 }

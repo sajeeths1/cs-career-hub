@@ -8,7 +8,7 @@ export class ResumeWorkerError extends Error {
 }
 
 /** Fixed executable/script arguments; document bytes travel through stdin only. */
-export function runResumeWorker(bytes: Uint8Array, signal?: AbortSignal): Promise<Omit<ParsedResume, "skills" | "warnings">> {
+export function runResumeWorker(bytes: Uint8Array, signal?: AbortSignal): Promise<Omit<ParsedResume, "scan" | "warnings">> {
   const root = path.basename(process.cwd()) === "frontend" ? path.dirname(process.cwd()) : process.cwd();
   const script = path.join(root, "backend/resume/parse_resume.py");
   const venv = path.join(root, "backend/resume/.venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
@@ -29,7 +29,7 @@ export function runResumeWorker(bytes: Uint8Array, signal?: AbortSignal): Promis
         else child.kill("SIGKILL");
       } catch { /* The process may already have exited. */ }
     };
-    const finish = (error?: Error, result?: Omit<ParsedResume, "skills" | "warnings">) => {
+    const finish = (error?: Error, result?: Omit<ParsedResume, "scan" | "warnings">) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);

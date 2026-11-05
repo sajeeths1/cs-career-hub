@@ -6,6 +6,7 @@ import type { LearningGoal, LearningResource, Skill, SkillOverview } from "@/lib
 import type { Company, NotificationRow, NotificationSettings } from "@/lib/notifications";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications";
 import { collectRoleMatches, targetRolesQuery } from "@/lib/job-personalization";
+import { RESUME_FILENAME_HEADER } from "@/lib/resume";
 
 function db() {
   if (!supabase) throw new Error("Supabase is not configured. Check frontend/.env.local.");
@@ -116,6 +117,33 @@ export async function fetchSkillDevelopment(userId: string, titleFilter = "") {
   };
 }
 
+export async function fetchKnownSkillIds(userId: string): Promise<number[]> {
+  const { data, error } = await db().from("user_skills").select("skill_id").eq("user_id", userId);
+  if (error) throw error;
+  return ((data ?? []) as unknown as { skill_id: number }[]).map((row) => row.skill_id);
+}
+
+/** Stored skill tags per job, for the match score. Batched so the URL stays a safe length. */
+export async function fetchJobSkillIds(jobIds: readonly number[], signal?: AbortSignal): Promise<Map<number, number[]>> {
+  const byJob = new Map<number, number[]>();
+  const batchSize = 100;
+  const pageSize = 1000;
+  for (let start = 0; start < jobIds.length; start += batchSize) {
+    const batch = jobIds.slice(start, start + batchSize);
+    for (let offset = 0; ; offset += pageSize) {
+      let query = db().from("job_skills").select("job_id, skill_id").in("job_id", batch)
+        .order("job_id").order("skill_id").range(offset, offset + pageSize - 1);
+      if (signal) query = query.abortSignal(signal);
+      const { data, error } = await query;
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as { job_id: number; skill_id: number }[];
+      for (const row of rows) byJob.set(row.job_id, [...(byJob.get(row.job_id) ?? []), row.skill_id]);
+      if (rows.length < pageSize) break;
+    }
+  }
+  return byJob;
+}
+
 export async function setKnownSkill(userId: string, skillId: number, known: boolean) {
   const query = known
     ? db().from("user_skills").upsert({ user_id: userId, skill_id: skillId }, { onConflict: "user_id,skill_id", ignoreDuplicates: true })
@@ -124,14 +152,11 @@ export async function setKnownSkill(userId: string, skillId: number, known: bool
   if (error) throw error;
 }
 
-/** One atomic insert of explicitly approved resume skills; retain existing selections. */
-export async function addResumeSkills(userId: string, skillIds: number[]) {
-  if (!skillIds.length) return;
-  const { error } = await db().from("user_skills").upsert(
-    [...new Set(skillIds)].map(skill_id => ({ user_id: userId, skill_id })),
-    { onConflict: "user_id,skill_id", ignoreDuplicates: true },
-  );
+/** Whether the local worker has finished the student's latest upload. */
+export async function fetchResumeScanStatus(): Promise<"none" | "scanning" | "done"> {
+  const { data, error } = await db().rpc("resume_scan_status");
   if (error) throw error;
+  return data as "none" | "scanning" | "done";
 }
 
 export async function parseResume(file: File, signal: AbortSignal) {
@@ -139,7 +164,11 @@ export async function parseResume(file: File, signal: AbortSignal) {
   if (error || !data.session) throw new Error("Sign in before parsing a resume.");
   const response = await fetch("/api/resume", {
     method: "POST", body: file, signal,
-    headers: { Authorization: `Bearer ${data.session.access_token}`, "Content-Type": "application/octet-stream" },
+    headers: {
+      Authorization: `Bearer ${data.session.access_token}`,
+      "Content-Type": "application/octet-stream",
+      [RESUME_FILENAME_HEADER]: encodeURIComponent(file.name),
+    },
   });
   const result = await response.json().catch(() => null);
   if (!response.ok || !result) throw new Error(result?.error ?? "Could not parse your resume. Please retry.");
