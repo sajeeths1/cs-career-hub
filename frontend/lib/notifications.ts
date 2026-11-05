@@ -5,7 +5,6 @@ export const DEFAULT_NOTIFICATION_SETTINGS = {
   email_enabled: true,
   instant_priority_alerts: true,
   digest_frequency: "weekly" as const,
-  followed_digest_frequency: "off" as const,
   target_role_digest_frequency: "off" as const,
 };
 
@@ -13,7 +12,6 @@ export const MAX_PRIORITY_COMPANIES = 10;
 
 export const SOURCE_LABELS: Record<NotificationSource, string> = {
   priority_company: "Priority",
-  followed_company: "Previous follow",
   target_role: "Matches your roles",
 };
 
