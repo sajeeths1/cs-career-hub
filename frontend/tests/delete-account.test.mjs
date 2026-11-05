@@ -3,7 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
 
-const state = { deleted: [], tokens: [] };
+const state = {
+  deleted: [], tokens: [], resumeDeletes: [], resumeFailure: false, fileFailure: false, listed: [], removed: [],
+  rows: [{ storage_path: "verified-user/a.pdf" }, { storage_path: "not-stored/1" }],
+  folder: [{ name: "a.pdf" }, { name: "leftover.pdf" }],
+};
 globalThis.__careerHubDeleteAccountTest = state;
 const asUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 const mock = asUrl(`export function createClient(url, key) {
@@ -12,7 +16,25 @@ const mock = asUrl(`export function createClient(url, key) {
     state.tokens.push(token);
     return { data: { user: token === "expired" ? null : { id: "verified-user" } }, error: null };
   } } };
-  return { auth: { admin: { deleteUser: async id => { state.deleted.push(id); return { error: null }; } } } };
+  return {
+    from: table => ({
+      select: () => ({ eq: async () => ({ data: state.rows, error: null }) }),
+      delete: () => ({ eq: async (column, value) => {
+        if (state.resumeFailure) return { error: { message: "offline" } };
+        state.resumeDeletes.push([table, column, value]);
+        return { error: null };
+      } }),
+    }),
+    storage: { from: () => ({
+      list: async folder => { state.listed.push(folder); return { data: state.folder, error: null }; },
+      remove: async paths => {
+        if (state.fileFailure) return { error: { message: "offline" } };
+        state.removed.push(paths);
+        return { error: null };
+      },
+    }) },
+    auth: { admin: { deleteUser: async id => { state.deleted.push(id); return { error: null }; } } },
+  };
 }`);
 const source = await readFile(new URL("../app/api/account/delete/route.ts", import.meta.url), "utf8");
 const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText;
@@ -39,6 +61,29 @@ test("delete account can delete only the server-verified caller", async () => {
   assert.equal(response.headers.get("Cache-Control"), "no-store");
   assert.deepEqual(state.deleted, ["verified-user"]);
   assert.deepEqual(state.tokens, ["expired", "student"]);
+  assert.deepEqual(state.resumeDeletes, [["resumes", "user_id", "verified-user"]]);
+  assert.deepEqual(state.listed, ["verified-user"]);
+  assert.deepEqual(state.removed, [["verified-user/a.pdf", "verified-user/leftover.pdf"]]);
+});
+
+test("delete account stops if stored resume text could not be removed", async () => {
+  const before = state.deleted.length;
+  state.resumeFailure = true;
+  try {
+    assert.equal((await POST(request("student"))).status, 500);
+    assert.equal(state.deleted.length, before);
+  } finally { state.resumeFailure = false; }
+});
+
+test("delete account stops if resume files could not be removed", async () => {
+  const deleted = state.deleted.length;
+  const rowDeletes = state.resumeDeletes.length;
+  state.fileFailure = true;
+  try {
+    assert.equal((await POST(request("student"))).status, 500);
+    assert.equal(state.deleted.length, deleted);
+    assert.equal(state.resumeDeletes.length, rowDeletes);
+  } finally { state.fileFailure = false; }
 });
 
 test("delete account refuses to run without the server-only key", async () => {

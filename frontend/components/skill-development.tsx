@@ -12,10 +12,11 @@ import type { Job } from "@/lib/types";
 
 type SkillData = Awaited<ReturnType<typeof fetchSkillDevelopment>>;
 
-export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onResumeResult, onProfileDraft }: {
+export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onResumeResult, onProfileDraft, onSkillsChanged }: {
   userId: string; jobs: Job[]; jobsLoading: boolean;
   resumeResult: ParsedResume | null; onResumeResult: (result: ParsedResume | null) => void;
   onProfileDraft: (draft: ResumeDraft) => void;
+  onSkillsChanged?: () => void;
 }) {
   const [data, setData] = useState<SkillData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +55,7 @@ export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onRe
   }, []);
 
   function toggleSkill(skill: Skill, known: boolean) {
-    void mutate(() => setKnownSkill(userId, skill.id, known), (current) => ({ ...current,
+    void mutate(async () => { await setKnownSkill(userId, skill.id, known); onSkillsChanged?.(); }, (current) => ({ ...current,
       knownIds: known ? [...new Set([...current.knownIds, skill.id])] : current.knownIds.filter((id) => id !== skill.id),
     }));
   }
@@ -70,8 +71,8 @@ export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onRe
     <div><h2 className="text-2xl font-semibold">Skill development</h2>
       <p className="mt-1 text-sm text-muted-foreground">Build a learning plan around the skills in real job postings.</p>
     </div>
-    <ResumeUpload userId={userId} compact result={resumeResult} onResult={onResumeResult}
-      onProfileDraft={onProfileDraft} onSkillsSaved={() => setAttempt((n) => n + 1)} />
+    <ResumeUpload compact result={resumeResult} onResult={onResumeResult}
+      onProfileDraft={onProfileDraft} onSkillsSaved={() => { setAttempt((n) => n + 1); onSkillsChanged?.(); }} />
     <Card>
       <CardHeader>
         <CardTitle>My skills</CardTitle>
