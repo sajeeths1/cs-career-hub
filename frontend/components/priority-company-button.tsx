@@ -8,7 +8,7 @@ import { setPriorityCompany } from "@/lib/data";
 const TOAST_DURATION_MS = 5000;
 
 /** Single company action: prioritize up to ten for alerts. */
-export function FollowCompanyButton({
+export function PriorityCompanyButton({
   userId,
   companyId,
   companyName,

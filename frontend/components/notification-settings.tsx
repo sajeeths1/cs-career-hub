@@ -39,7 +39,6 @@ export function NotificationSettingsTab({ userId }: { userId: string }) {
         email_enabled: settings.email_enabled,
         instant_priority_alerts: settings.instant_priority_alerts,
         digest_frequency: settings.digest_frequency,
-        followed_digest_frequency: "off",
         target_role_digest_frequency: settings.target_role_digest_frequency,
       });
       setSaveStatus({ text: "Preferences saved.", isError: false });
@@ -63,7 +62,7 @@ export function NotificationSettingsTab({ userId }: { userId: string }) {
         <CardHeader>
           <CardTitle>Notification preferences</CardTitle>
           <CardDescription>
-            Control how often you hear about new roles. Follow or prioritize companies alongside these preferences.
+            Control how often you hear about new roles. Prioritize companies alongside these preferences.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">

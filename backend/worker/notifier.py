@@ -1,7 +1,7 @@
 """Create in-app notifications and send email alerts for job postings.
 
 Two independent axes describe every notification:
-  source (WHY the user sees it, migration 007): priority_company, followed_company, or target_role.
+  source (WHY the user sees it, migration 007): priority_company or target_role.
   kind   (WHAT happened, migration 008):        new_posting or closing_soon.
 
 notify_new_jobs / notify_target_role_matches both take a `kind` argument and
@@ -36,12 +36,10 @@ DEFAULT_FROM_EMAIL = "CS Career Hub <onboarding@resend.dev>"
 
 SOURCE_LABELS = {
     "priority_company": "Priority companies",
-    "followed_company": "Companies you follow",
     "target_role": "Roles matching your target roles",
 }
 CATEGORY_FREQUENCY_FIELD = {
     "priority_company": "digest_frequency",
-    "followed_company": "followed_digest_frequency",
     "target_role": "target_role_digest_frequency",
 }
 
@@ -252,8 +250,7 @@ def default_settings(user_id: str) -> dict:
     """A user who has never opened Settings gets the column defaults from migrations 003/007."""
     return {
         "user_id": user_id, "email_enabled": True, "instant_priority_alerts": True,
-        "digest_frequency": "weekly", "followed_digest_frequency": "weekly",
-        "target_role_digest_frequency": "off",
+        "digest_frequency": "weekly", "target_role_digest_frequency": "off",
     }
 
 
@@ -288,7 +285,7 @@ def settings_by_user(client, user_ids: list[str]) -> dict:
         return {}
     rows = (
         client.table("notification_settings")
-        .select("user_id, email_enabled, instant_priority_alerts, digest_frequency, followed_digest_frequency, target_role_digest_frequency")
+        .select("user_id, email_enabled, instant_priority_alerts, digest_frequency, target_role_digest_frequency")
         .in_("user_id", user_ids).execute().data
     )
     settings = {row["user_id"]: row for row in rows}
@@ -315,27 +312,18 @@ def notify_new_jobs(client, company_id: int, company_name: str, jobs: list[dict]
                      kind: str = "new_posting", company_logo_url: str | None = None) -> dict:
     """jobs: rows as saved to the `jobs` table (must include id, title, url, location, posted_at).
 
-    Priority followers (capped at 10, migration 003) are eligible for an instant
-    email. Followed-only followers (unlimited, migration 007) only ever get a
-    notification row; email is left to the digest. A user in both lists is
-    inserted once, as priority_company: priority rows are written first so a
-    later conflicting followed_company insert is a no-op.
+    Priority companies (capped at 10, migration 003) are the only company-based
+    notification source; being priority is eligible for an instant email.
     """
     if not jobs:
         return {"notified": 0, "emailed": 0}
     priority_user_ids = [row["user_id"] for row in client.table("priority_companies").select("user_id").eq("company_id", company_id).execute().data]
-    followed_user_ids = [row["user_id"] for row in client.table("followed_companies").select("user_id").eq("company_id", company_id).execute().data]
-    if not priority_user_ids and not followed_user_ids:
+    if not priority_user_ids:
         return {"notified": 0, "emailed": 0}
 
-    priority_set = set(priority_user_ids)
     inserted = _insert_notifications(client, [
         {"user_id": uid, "job_id": job["id"], "company_id": company_id, "source": "priority_company", "kind": kind}
         for uid in priority_user_ids for job in jobs
-    ])
-    inserted += _insert_notifications(client, [
-        {"user_id": uid, "job_id": job["id"], "company_id": company_id, "source": "followed_company", "kind": kind}
-        for uid in followed_user_ids if uid not in priority_set for job in jobs
     ])
 
     settings = settings_by_user(client, priority_user_ids)
@@ -343,7 +331,7 @@ def notify_new_jobs(client, company_id: int, company_name: str, jobs: list[dict]
     emailed_ids = []
     for user_id in priority_user_ids:
         prefs = settings[user_id]
-        own_rows = [row for row in inserted if row["user_id"] == user_id and row["source"] == "priority_company"]
+        own_rows = [row for row in inserted if row["user_id"] == user_id]
         if not (prefs["email_enabled"] and prefs["instant_priority_alerts"]) or not own_rows:
             continue
         email = user_email(client, user_id)

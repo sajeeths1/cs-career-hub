@@ -81,11 +81,10 @@ export type NotificationSettings = {
   email_enabled: boolean;
   instant_priority_alerts: boolean;
   digest_frequency: DigestFrequency;
-  followed_digest_frequency: DigestFrequency;
   target_role_digest_frequency: DigestFrequency;
 };
 
-export type NotificationSource = "priority_company" | "followed_company" | "target_role";
+export type NotificationSource = "priority_company" | "target_role";
 export type NotificationKind = "new_posting" | "closing_soon";
 
 export type NotificationRow = {

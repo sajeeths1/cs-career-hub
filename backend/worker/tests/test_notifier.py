@@ -131,20 +131,19 @@ NEW_JOBS = [{"id": 101, "title": "Software Engineer Intern", "url": "https://exa
              "company_id": 1, "location": "Remote", "posted_at": "2026-01-01"}]
 
 
-def client_with(priority_ids=(), followed_ids=(), settings_overrides=None, emails=None):
+def client_with(priority_ids=(), settings_overrides=None, emails=None):
     settings = []
     if settings_overrides is not None:
         for user_id, overrides in settings_overrides.items():
             settings.append({"user_id": user_id, "email_enabled": True, "instant_priority_alerts": True,
-                              "digest_frequency": "weekly", "followed_digest_frequency": "weekly",
+                              "digest_frequency": "weekly",
                               "target_role_digest_frequency": "off", **overrides})
     rows = {
         "priority_companies": [{"user_id": uid, "company_id": 1} for uid in priority_ids],
-        "followed_companies": [{"user_id": uid, "company_id": 1} for uid in followed_ids],
         "notification_settings": settings,
         "notifications": [],
     }
-    return FakeClient(rows, emails or {uid: f"{uid}@example.com" for uid in {*priority_ids, *followed_ids}})
+    return FakeClient(rows, emails or {uid: f"{uid}@example.com" for uid in priority_ids})
 
 
 class RoleMatchingTests(unittest.TestCase):
@@ -264,23 +263,6 @@ class NotifyNewJobsTests(unittest.TestCase):
         kinds = sorted(row["kind"] for row in client.rows["notifications"])
         self.assertEqual(kinds, ["closing_soon", "new_posting"])
 
-    def test_followed_only_gets_notification_without_instant_email(self):
-        client = client_with(followed_ids=["u1"])
-        with patch("notifier.send_email") as sent:
-            result = notify_new_jobs(client, 1, "Acme", NEW_JOBS, NOW)
-        sent.assert_not_called()
-        self.assertEqual(result, {"notified": 1, "emailed": 0})
-        row = client.rows["notifications"][0]
-        self.assertEqual(row["source"], "followed_company")
-        self.assertIsNone(row.get("emailed_at"))
-
-    def test_priority_and_followed_user_gets_one_row_labeled_priority(self):
-        client = client_with(priority_ids=["u1"], followed_ids=["u1"])
-        with patch("notifier.send_email", return_value=True):
-            notify_new_jobs(client, 1, "Acme", NEW_JOBS, NOW)
-        self.assertEqual(len(client.rows["notifications"]), 1)
-        self.assertEqual(client.rows["notifications"][0]["source"], "priority_company")
-
     def test_instant_alerts_disabled_creates_notification_without_email(self):
         client = client_with(priority_ids=["u1"], settings_overrides={"u1": {"instant_priority_alerts": False}})
         with patch("notifier.send_email") as sent:
@@ -352,25 +334,22 @@ class RunDigestTests(unittest.TestCase):
     def test_batches_pending_notifications_by_category_into_one_email(self):
         client = FakeClient({
             "notification_settings": [{"user_id": "u1", "email_enabled": True, "digest_frequency": "weekly",
-                                        "followed_digest_frequency": "weekly", "target_role_digest_frequency": "off"}],
+                                        "target_role_digest_frequency": "off"}],
             "notifications": [
                 {"id": 1, "user_id": "u1", "source": "priority_company", "kind": "new_posting", "emailed_at": None,
                  "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}},
-                {"id": 2, "user_id": "u1", "source": "followed_company", "kind": "new_posting", "emailed_at": None,
-                 "jobs": {"id": 2, "title": "Data Intern", "url": "x"}, "companies": {"name": "Beta"}},
-                {"id": 3, "user_id": "u1", "source": "target_role", "kind": "new_posting", "emailed_at": None,
-                 "jobs": {"id": 3, "title": "ML Intern", "url": "x"}, "companies": {"name": "Gamma"}},
+                {"id": 2, "user_id": "u1", "source": "target_role", "kind": "new_posting", "emailed_at": None,
+                 "jobs": {"id": 2, "title": "ML Intern", "url": "x"}, "companies": {"name": "Gamma"}},
             ],
         }, emails={"u1": "student@example.com"})
         with patch("notifier.send_email", return_value=True) as sent:
             result = run_digest(client, "weekly", NOW)
-        # target_role is "off" for this user, so only the two weekly-due rows are included.
-        self.assertEqual(result, {"emailed_users": 1, "emailed_notifications": 2})
+        # target_role is "off" for this user, so only the priority-company row is included.
+        self.assertEqual(result, {"emailed_users": 1, "emailed_notifications": 1})
         html = sent.call_args[0][2]
         self.assertIn("SWE Intern", html)
-        self.assertIn("Data Intern", html)
         self.assertNotIn("ML Intern", html)
-        self.assertEqual(client.rows["notifications"][2]["emailed_at"], None)
+        self.assertEqual(client.rows["notifications"][1]["emailed_at"], None)
 
     def test_user_with_no_settings_row_still_gets_a_digest_using_defaults(self):
         # Regression test: a user who never opened Settings has no notification_settings
@@ -390,7 +369,7 @@ class RunDigestTests(unittest.TestCase):
     def test_already_emailed_notifications_are_not_resent(self):
         client = FakeClient({
             "notification_settings": [{"user_id": "u1", "email_enabled": True, "digest_frequency": "daily",
-                                        "followed_digest_frequency": "off", "target_role_digest_frequency": "off"}],
+                                        "target_role_digest_frequency": "off"}],
             "notifications": [{"id": 1, "user_id": "u1", "source": "priority_company", "kind": "new_posting", "emailed_at": NOW.isoformat(),
                                 "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}],
         }, emails={"u1": "student@example.com"})
@@ -402,7 +381,7 @@ class RunDigestTests(unittest.TestCase):
     def test_email_disabled_user_is_skipped_entirely(self):
         client = FakeClient({
             "notification_settings": [{"user_id": "u1", "email_enabled": False, "digest_frequency": "daily",
-                                        "followed_digest_frequency": "daily", "target_role_digest_frequency": "daily"}],
+                                        "target_role_digest_frequency": "daily"}],
             "notifications": [{"id": 1, "user_id": "u1", "source": "priority_company", "kind": "new_posting", "emailed_at": None,
                                 "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}],
         }, emails={"u1": "student@example.com"})

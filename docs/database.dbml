@@ -84,7 +84,7 @@ Table priority_companies {
   company_id bigint [not null]
   created_at timestamptz [not null]
   indexes { (user_id, company_id) [pk] }
-  Note: 'Database trigger limits each user to ten priority companies'
+  Note: 'Database trigger limits each user to ten priority companies. The only company-based notification control (migration 010 removed the unlimited follow tier)'
 }
 
 Table notification_settings {
@@ -92,17 +92,8 @@ Table notification_settings {
   email_enabled boolean [not null, default: true]
   instant_priority_alerts boolean [not null, default: true]
   digest_frequency text [not null, default: 'weekly', note: 'priority companies not already sent instantly; daily, weekly or off']
-  followed_digest_frequency text [not null, default: 'weekly', note: 'daily, weekly or off']
   target_role_digest_frequency text [not null, default: 'off', note: 'daily, weekly or off']
   updated_at timestamptz [not null]
-}
-
-Table followed_companies {
-  user_id uuid [not null]
-  company_id bigint [not null]
-  created_at timestamptz [not null]
-  indexes { (user_id, company_id) [pk] }
-  Note: 'Default (digest-only) tier, unlimited. priority_companies is the capped, instant-alert tier'
 }
 
 Table learning_goals {
@@ -142,7 +133,7 @@ Table notifications {
   created_at timestamptz [not null]
   read_at timestamptz
   emailed_at timestamptz [note: 'Set once included in an instant alert or digest email']
-  source text [not null, default: 'priority_company', note: 'priority_company, followed_company or target_role; WHY the user sees this']
+  source text [not null, default: 'priority_company', note: 'priority_company or target_role; WHY the user sees this']
   kind text [not null, default: 'new_posting', note: 'new_posting or closing_soon; WHAT happened']
   indexes { (user_id, job_id, kind) [unique] }
   Note: 'One row per (user, job, kind); a job can notify the same user once as new and later once as closing soon'
@@ -163,5 +154,3 @@ Ref: job_skill_extractions.job_id - jobs.id [delete: cascade]
 Ref: notifications.user_id > profiles.id [delete: cascade]
 Ref: notifications.job_id > jobs.id [delete: cascade]
 Ref: notifications.company_id > companies.id [delete: cascade]
-Ref: followed_companies.user_id > profiles.id [delete: cascade]
-Ref: followed_companies.company_id > companies.id [delete: cascade]
