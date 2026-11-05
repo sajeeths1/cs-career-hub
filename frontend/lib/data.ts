@@ -183,38 +183,14 @@ export async function saveLearningGoal(userId: string, skillId: number, status: 
   if (error) throw error;
 }
 
-/** Companies students can follow for priority job alerts (migration 003). */
+/** Companies students can prioritize for job alerts (migration 003). */
 export async function fetchCompanies(): Promise<Company[]> {
   const { data, error } = await db().from("companies").select("id, name, logo_url").order("name");
   if (error) throw error;
   return (data ?? []) as Company[];
 }
 
-/** Default (unlimited) follow tier: digest-only notifications. */
-export async function fetchFollowedCompanyIds(userId: string): Promise<number[]> {
-  const { data, error } = await db().from("followed_companies").select("company_id").eq("user_id", userId);
-  if (error) throw error;
-  return ((data ?? []) as { company_id: number }[]).map((row) => row.company_id);
-}
-
-/** Unfollowing also drops priority status, since priority implies following. */
-export async function setFollowedCompany(userId: string, companyId: number, follow: boolean): Promise<void> {
-  if (follow) {
-    const { error } = await db().from("followed_companies").upsert(
-      { user_id: userId, company_id: companyId }, { onConflict: "user_id,company_id", ignoreDuplicates: true },
-    );
-    if (error) throw error;
-    return;
-  }
-  const [followedResult, priorityResult] = await Promise.all([
-    db().from("followed_companies").delete().eq("user_id", userId).eq("company_id", companyId),
-    db().from("priority_companies").delete().eq("user_id", userId).eq("company_id", companyId),
-  ]);
-  if (followedResult.error) throw followedResult.error;
-  if (priorityResult.error) throw priorityResult.error;
-}
-
-/** Priority (max 10) tier: eligible for instant email alerts. */
+/** Priority (max 10) tier: the only company-based alert control. Eligible for instant email alerts. */
 export async function fetchPriorityCompanyIds(userId: string): Promise<number[]> {
   const { data, error } = await db().from("priority_companies").select("company_id").eq("user_id", userId);
   if (error) throw error;
@@ -223,22 +199,19 @@ export async function fetchPriorityCompanyIds(userId: string): Promise<number[]>
 
 /** The database rejects a priority selection past the 10-company limit. */
 export async function setPriorityCompany(userId: string, companyId: number, priority: boolean): Promise<void> {
-  if (priority) {
-    const { error } = await db().from("priority_companies").upsert(
-      { user_id: userId, company_id: companyId }, { onConflict: "user_id,company_id", ignoreDuplicates: true },
-    );
-    if (error) throw error;
-    return;
-  }
-  // Previously prioritizing automatically created a follow. Remove both when
-  // unprioritizing so a hidden follow cannot keep sending digest notifications.
-  await setFollowedCompany(userId, companyId, false);
+  const query = priority
+    ? db().from("priority_companies").upsert(
+        { user_id: userId, company_id: companyId }, { onConflict: "user_id,company_id", ignoreDuplicates: true },
+      )
+    : db().from("priority_companies").delete().eq("user_id", userId).eq("company_id", companyId);
+  const { error } = await query;
+  if (error) throw error;
 }
 
 export async function fetchNotificationSettings(userId: string): Promise<NotificationSettings> {
   const { data, error } = await db()
     .from("notification_settings")
-    .select("user_id, email_enabled, instant_priority_alerts, digest_frequency, followed_digest_frequency, target_role_digest_frequency")
+    .select("user_id, email_enabled, instant_priority_alerts, digest_frequency, target_role_digest_frequency")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw error;

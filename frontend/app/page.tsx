@@ -17,7 +17,7 @@ import { NotificationBell } from "@/components/notification-bell";
 import { NotificationSettingsTab } from "@/components/notification-settings";
 import { CompaniesTab } from "@/components/companies";
 import { DeleteAccount } from "@/components/delete-account";
-import { FollowCompanyButton } from "@/components/follow-company-button";
+import { PriorityCompanyButton } from "@/components/priority-company-button";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -770,7 +770,7 @@ function JobDetail({
               {formatPosted(job.posted_at)}
             </CardDescription>
             <div className="mt-2">
-              <FollowCompanyButton
+              <PriorityCompanyButton
                 companyId={job.company_id}
                 companyName={job.companies?.name ?? "this company"}
                 isActive={isPriorityCompany}
