@@ -3,7 +3,7 @@ import {
   CheckCircle2,
   ClipboardList,
   LayoutDashboard,
-  SlidersHorizontal,
+  UserRound,
   Target,
 } from "lucide-react";
 
@@ -12,7 +12,7 @@ export const navItems = [
   { label: "Jobs", icon: Briefcase },
   { label: "Tracker", icon: ClipboardList },
   { label: "Skills", icon: Target },
-  { label: "Personalization", icon: SlidersHorizontal },
+  { label: "Profile", icon: UserRound },
 ];
 
 export const metrics = [

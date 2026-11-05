@@ -115,7 +115,7 @@ export function ResumeUpload({ compact = false, result, onResult, onProfileDraft
               <Input value={draft[field]} maxLength={field === "school" ? 200 : 100} onChange={event => setDraft(previous => ({ ...previous, [field]: event.target.value }))} />
             </label>)}
               <Button type="button" className="w-fit" disabled={!Object.values(draft).some(value => value.trim())} onClick={() => onProfileDraft({ full_name: draft.full_name.trim(), major: draft.major.trim(), school: draft.school.trim() })}>Fill profile form</Button>
-              <p className="text-xs text-muted-foreground">Review and save the profile form in Personalization. Set your target roles and preferred location there.</p>
+              <p className="text-xs text-muted-foreground">Review and save the profile form in Profile. Set your target roles and preferred location there.</p>
             </div>
           </details>
           <details className="rounded-md border p-3 text-sm">
