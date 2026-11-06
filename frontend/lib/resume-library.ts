@@ -1,10 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { MAX_RESUME_BYTES } from "@/lib/resume";
 
-export const RESUME_LIBRARY_BUCKET = "profile-resumes";
+export const RESUME_LIBRARY_BUCKET = "resumes";
+export const RESUME_LIBRARY_COLUMNS = "id, name, original_filename, storage_path, mime_type, file_size_bytes, created_at:uploaded_at, is_default, has_file";
 export type StoredResume = {
   id: string; name: string; original_filename: string; storage_path: string;
-  mime_type: string; file_size_bytes: number; created_at: string; is_default: boolean;
+  mime_type: string; file_size_bytes: number; created_at: string; is_default: boolean; has_file: boolean;
 };
 export type JobResumeChoice = { job_id: number; resume_id: string };
 
@@ -26,10 +27,10 @@ export async function uploadResumeVersion(client: SupabaseClient, userId: string
   const storage = client.storage.from(RESUME_LIBRARY_BUCKET);
   const uploaded = await storage.upload(path, bytes, { contentType: type.mime, upsert: false });
   if (uploaded.error) throw uploaded.error;
-  const { data, error } = await client.from("profile_resumes").insert({
+  const { data, error } = await client.from("resumes").insert({
     user_id: userId, name: (file.name.replace(/\.[^.]+$/, "").trim() || "Resume").slice(0, 150),
-    original_filename: file.name, storage_path: path, mime_type: type.mime, file_size_bytes: file.size,
-  }).select("id, name, original_filename, storage_path, mime_type, file_size_bytes, created_at, is_default").single();
+    original_filename: file.name.slice(0, 255), storage_path: path, mime_type: type.mime, file_size_bytes: file.size,
+  }).select(RESUME_LIBRARY_COLUMNS).single();
   if (error) {
     await storage.remove([path]).catch(() => {});
     throw error;

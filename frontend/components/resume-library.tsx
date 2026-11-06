@@ -113,14 +113,15 @@ function ResumeRow({ resume, disabled, run, uses }: {
       <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => setEditing(false)}>Cancel</Button>
     </form>}
     <div className="flex flex-wrap gap-2">
-      <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => void openFile(false)}>View</Button>
-      <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => void openFile(true)}>Download</Button>
+      <Button type="button" variant="outline" size="sm" disabled={disabled || !resume.has_file} onClick={() => void openFile(false)}>View</Button>
+      <Button type="button" variant="outline" size="sm" disabled={disabled || !resume.has_file} onClick={() => void openFile(true)}>Download</Button>
       <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => { setName(resume.name); setEditing(true); }}>Rename</Button>
       {!resume.is_default && <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => void run(() => setDefaultResume(resume.id))}>Make default</Button>}
       <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => {
         if (window.confirm(`Delete “${resume.name}”? This also clears its selection from ${uses} tracked job(s).`)) void run(() => removeLibraryResume(resume));
       }}>Delete</Button>
     </div>
+    {!resume.has_file && <p className="text-xs text-muted-foreground">Only extracted text was retained for this upload. Upload the file again to keep a downloadable version.</p>}
     {fileError && <p role="alert" className="text-sm text-red-600">{fileError}</p>}
   </li>;
 }

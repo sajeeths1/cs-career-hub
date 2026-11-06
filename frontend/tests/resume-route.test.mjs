@@ -10,7 +10,7 @@ async function moduleSource(file) {
 const asUrl = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const resumeUrl = asUrl(await moduleSource('../lib/resume.ts'));
 const parsed = { text: 'Alex Morgan\nPython and SQL', details: { full_name: 'Alex Morgan', major: '', school: '', email: '', phone: '', links: [], sections: {} }, metadata: { pages: 1, ocr_pages: 0 } };
-const state = { worker: async () => parsed, calls: 0, saveFailure: false, uploadFailure: false, replaced: [], tokens: [], saves: [], uploads: [], removed: [] };
+const state = { worker: async () => parsed, calls: 0, saveFailure: false, uploadFailure: false, tokens: [], saves: [], uploads: [], removed: [] };
 const stateKey = '__careerHubResumeRouteTest';
 globalThis[stateKey] = state;
 const mockSupabase = asUrl(`export function createClient(url, key, options) {
@@ -20,7 +20,7 @@ const mockSupabase = asUrl(`export function createClient(url, key, options) {
   upload: async (path, bytes, opts) => { if (state.uploadFailure) return {error:{message:'Storage offline'}}; state.uploads.push({bucket, path, size: bytes.length, ...opts, auth: options.global.headers.Authorization}); return {error:null}; },
   remove: async paths => { state.removed.push(paths); return {error:null}; },
  }) },
- rpc: async (name, params) => { if (state.saveFailure) return {error:{message:'Database offline'}}; state.saves.push([name, params, options.global.headers.Authorization]); return {data:state.replaced,error:null}; } };
+ rpc: async (name, params) => { if (state.saveFailure) return {error:{message:'Database offline'}}; state.saves.push([name, params, options.global.headers.Authorization]); return {data:'new-resume-id',error:null}; } };
 }`);
 const mockWorker = asUrl(`export class ResumeWorkerError extends Error {constructor(message,status=422){super(message);this.status=status;}} export async function runResumeWorker(bytes,signal){ const state=globalThis.${stateKey};state.calls++;return state.worker(bytes,signal); }`);
 const routeSource = (await moduleSource('../app/api/resume/route.ts'))
@@ -52,27 +52,32 @@ test('resume endpoint stores the file and queues the text with user credentials'
  assert.equal(response.headers.get('Cache-Control'), 'no-store');
  const result = await response.json();
  assert.equal(result.scan,'queued');
+ assert.equal(result.resume_id,'new-resume-id');
  assert.deepEqual(result.warnings,[]);
  assert.deepEqual(state.tokens.at(-1), ['student','Bearer student']);
  const upload = state.uploads.at(-1);
  assert.match(upload.path,/^student\/[0-9a-f-]{36}\.pdf$/);
  assert.deepEqual({...upload,path:null},{bucket:'resumes',path:null,size:PDF.length,contentType:'application/pdf',upsert:false,auth:'Bearer student'});
- assert.deepEqual(state.saves.at(-1), ['save_uploaded_resume',{p_original_filename:'Alex Résumé.pdf',p_storage_path:upload.path,p_mime_type:'application/pdf',p_file_size_bytes:PDF.length,p_extracted_text:parsed.text},'Bearer student']);
+ assert.deepEqual(state.saves.at(-1), ['save_uploaded_resume_version',{p_original_filename:'Alex Résumé.pdf',p_storage_path:upload.path,p_mime_type:'application/pdf',p_file_size_bytes:PDF.length,p_extracted_text:parsed.text},'Bearer student']);
 });
 test('file type comes from the bytes, not the name, and the path ignores the name', async () => {
  await POST(request('student','PK\u0003\u0004 docx',{'X-Resume-Filename':encodeURIComponent('../../evil.pdf')}));
  assert.match(state.uploads.at(-1).path,/^student\/[0-9a-f-]{36}\.docx$/);
  assert.match(state.uploads.at(-1).contentType,/wordprocessingml/);
 });
-test('images and unknown types keep text only', async () => {
+test('image resumes retain their file in the same bucket', async () => {
  const before = state.uploads.length;
  const response = await POST(request('student',new Uint8Array([0xff,0xd8,0xff,0xe0]),{'X-Resume-Filename':'photo.pdf'}));
  assert.equal((await response.json()).scan,'queued');
- assert.equal(state.uploads.length,before);
- assert.equal(state.saves.at(-1)[1].p_storage_path,null);
+ assert.equal(state.uploads.length,before + 1);
+ assert.match(state.saves.at(-1)[1].p_storage_path,/^student\/[0-9a-f-]{36}\.jpg$/);
  assert.equal(state.saves.at(-1)[1].p_mime_type,'image/jpeg');
+});
+test('unknown types retain text only if accepted by the parser', async () => {
+ const before = state.uploads.length;
  await POST(request());
  assert.equal(state.saves.at(-1)[1].p_mime_type,'application/octet-stream');
+ assert.equal(state.saves.at(-1)[1].p_storage_path,null);
  assert.equal(state.uploads.length,before);
 });
 test('missing or malformed filenames fall back to a safe default', async () => {
@@ -81,10 +86,14 @@ test('missing or malformed filenames fall back to a safe default', async () => {
  await POST(request('student','resume',{'X-Resume-Filename':'%E0%A4%A'}));
  assert.equal(state.saves.at(-1)[1].p_original_filename,'resume');
 });
-test('replaced files are removed from storage', async () => {
- state.replaced = ['student/old.pdf'];
- try { await POST(request('student',PDF)); } finally { state.replaced = []; }
- assert.deepEqual(state.removed.at(-1),['student/old.pdf']);
+test('successful uploads retain previous files and save each new file once', async () => {
+ const removed = state.removed.length;
+ const uploaded = state.uploads.length;
+ await POST(request('student',PDF));
+ await POST(request('student',PDF));
+ assert.equal(state.removed.length, removed);
+ assert.equal(state.uploads.length, uploaded + 2);
+ assert.notEqual(state.uploads.at(-1).path, state.uploads.at(-2).path);
 });
 test('a failed file upload still queues the scan and warns', async () => {
  state.uploadFailure = true;

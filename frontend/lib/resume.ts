@@ -7,5 +7,7 @@ export type ParsedResume = {
   metadata: { pages: number | null; ocr_pages: number };
   /** "queued" means the text was saved and the skill worker will pick it up. */
   scan: "queued" | "failed";
+  /** The persisted version, used to poll this upload rather than a later upload. */
+  resume_id?: string;
   warnings: string[];
 };

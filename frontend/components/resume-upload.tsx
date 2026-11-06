@@ -42,7 +42,7 @@ export function ResumeUpload({ compact = false, result, onResult, onProfileDraft
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const check = async (attempt: number) => {
-      const status = await fetchResumeScanStatus().catch(() => "scanning");
+      const status = await fetchResumeScanStatus(result.resume_id).catch(() => "scanning");
       if (!active) return;
       if (status === "done") { setScan("done"); skillsSaved.current?.(); return; }
       if (attempt >= SCAN_POLL_ATTEMPTS) { setScan("slow"); return; }

@@ -7,13 +7,13 @@ export const maxDuration = 120;
 const activeUsers = new Set<string>();
 const RESUME_BUCKET = "resumes";
 
-/** From the bytes, as the parser does. The bucket only accepts PDF and DOCX, so images keep text only. */
+/** From the bytes, as the parser does, independent of filename or browser MIME type. */
 function documentType(bytes: Uint8Array): { mime: string; extension?: string } {
   const startsWith = (...values: number[]) => values.every((value, index) => bytes[index] === value);
   if (startsWith(0x25, 0x50, 0x44, 0x46, 0x2d)) return { mime: "application/pdf", extension: "pdf" };
   if (startsWith(0x50, 0x4b, 0x03, 0x04)) return { mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", extension: "docx" };
-  if (startsWith(0x89, 0x50, 0x4e, 0x47)) return { mime: "image/png" };
-  if (startsWith(0xff, 0xd8, 0xff)) return { mime: "image/jpeg" };
+  if (startsWith(0x89, 0x50, 0x4e, 0x47)) return { mime: "image/png", extension: "png" };
+  if (startsWith(0xff, 0xd8, 0xff)) return { mime: "image/jpeg", extension: "jpg" };
   return { mime: "application/octet-stream" };
 }
 
@@ -70,6 +70,7 @@ export async function POST(request: Request) {
     const parsed = await runResumeWorker(bytes, request.signal);
     const warnings: string[] = [];
     let scan: ParsedResume["scan"] = "queued";
+    let resumeId: string | undefined;
     // Everything uses the student's token. Storage rules and the database function
     // both limit it to their own files and row, so no service key is needed here.
     const type = documentType(bytes);
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
       }
     }
     try {
-      const { data, error } = await client.rpc("save_uploaded_resume", {
+      const { data, error } = await client.rpc("save_uploaded_resume_version", {
         p_original_filename: uploadedFilename(request),
         p_storage_path: storagePath,
         p_mime_type: type.mime,
@@ -94,15 +95,13 @@ export async function POST(request: Request) {
         p_extracted_text: parsed.text,
       });
       if (error) throw error;
-      // Best effort: account deletion clears the student's folder, including anything left here.
-      const replaced = (data ?? []) as string[];
-      if (replaced.length) await storage.remove(replaced).catch(() => {});
+      resumeId = data as string;
     } catch {
       scan = "failed";
       warnings.push("Your resume was read, but we could not save it for the skill scan. No skills were added. Please try again.");
       if (storagePath) await storage.remove([storagePath]).catch(() => {});
     }
-    return reply({ ...parsed, scan, warnings });
+    return reply({ ...parsed, scan, warnings, resume_id: resumeId });
   } catch (error) {
     return error instanceof ResumeWorkerError
       ? reply({ error: error.message }, error.status)

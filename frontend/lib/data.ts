@@ -7,7 +7,7 @@ import type { Company, NotificationRow, NotificationSettings } from "@/lib/notif
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications";
 import { collectRoleMatches, targetRolesQuery } from "@/lib/job-personalization";
 import { RESUME_FILENAME_HEADER } from "@/lib/resume";
-import { RESUME_LIBRARY_BUCKET, uploadResumeVersion, type StoredResume, type JobResumeChoice } from "@/lib/resume-library";
+import { RESUME_LIBRARY_BUCKET, RESUME_LIBRARY_COLUMNS, uploadResumeVersion, type StoredResume, type JobResumeChoice } from "@/lib/resume-library";
 
 function db() {
   if (!supabase) throw new Error("Supabase is not configured. Check frontend/.env.local.");
@@ -161,8 +161,10 @@ export async function addKnownSkill(name: string): Promise<Skill> {
 }
 
 /** Whether the local worker has finished the student's latest upload. */
-export async function fetchResumeScanStatus(): Promise<"none" | "scanning" | "done"> {
-  const { data, error } = await db().rpc("resume_scan_status");
+export async function fetchResumeScanStatus(resumeId?: string): Promise<"none" | "scanning" | "done"> {
+  const { data, error } = resumeId
+    ? await db().rpc("resume_scan_status_for", { p_resume_id: resumeId })
+    : await db().rpc("resume_scan_status");
   if (error) throw error;
   return data as "none" | "scanning" | "done";
 }
@@ -180,16 +182,12 @@ export async function parseResume(file: File, signal: AbortSignal) {
   });
   const result = await response.json().catch(() => null);
   if (!response.ok || !result) throw new Error(result?.error ?? "Could not parse your resume. Please retry.");
-  if (!signal.aborted) {
-    try { await uploadResumeVersion(db(), data.session.user.id, file); }
-    catch { result.warnings.push("This resume could not be added to your library. Upload it again from Profile to keep a version for job applications."); }
-  }
   return result as import("./resume").ParsedResume;
 }
 
 export async function fetchResumeLibrary(userId: string) {
   const [resumes, choices] = await Promise.all([
-    db().from("profile_resumes").select("id, name, original_filename, storage_path, mime_type, file_size_bytes, created_at, is_default").eq("user_id", userId).order("created_at", { ascending: false }),
+    db().from("resumes").select(RESUME_LIBRARY_COLUMNS).eq("user_id", userId).order("uploaded_at", { ascending: false }),
     db().from("application_resumes").select("job_id, resume_id").eq("user_id", userId),
   ]);
   if (resumes.error) throw resumes.error;
@@ -202,7 +200,7 @@ export async function uploadLibraryResume(userId: string, file: File) { return u
 export async function renameLibraryResume(id: string, name: string) {
   const cleaned = name.trim();
   if (!cleaned || cleaned.length > 150) throw new Error("Use a resume name of 1–150 characters.");
-  const { error } = await db().from("profile_resumes").update({ name: cleaned }).eq("id", id);
+  const { error } = await db().from("resumes").update({ name: cleaned }).eq("id", id);
   if (error) throw error;
 }
 
@@ -212,6 +210,7 @@ export async function setDefaultResume(id: string) {
 }
 
 export async function resumeFileUrl(resume: StoredResume, download = false) {
+  if (!resume.has_file) throw new Error("No file was retained for this resume.");
   const { data, error } = await db().storage.from(RESUME_LIBRARY_BUCKET).createSignedUrl(resume.storage_path, 60,
     download ? { download: resume.original_filename } : undefined);
   if (error) throw error;
@@ -219,9 +218,11 @@ export async function resumeFileUrl(resume: StoredResume, download = false) {
 }
 
 export async function removeLibraryResume(resume: StoredResume) {
-  const { error } = await db().storage.from(RESUME_LIBRARY_BUCKET).remove([resume.storage_path]);
-  if (error) throw error;
-  const removed = await db().from("profile_resumes").delete().eq("id", resume.id);
+  if (resume.has_file) {
+    const { error } = await db().storage.from(RESUME_LIBRARY_BUCKET).remove([resume.storage_path]);
+    if (error) throw error;
+  }
+  const removed = await db().from("resumes").delete().eq("id", resume.id);
   if (removed.error) throw removed.error;
 }
 

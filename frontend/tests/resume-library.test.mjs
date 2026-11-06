@@ -13,14 +13,14 @@ function client({ insertError = null, uploadError = null } = {}) {
   const calls = { uploads: [], inserts: [], removals: [] };
   return { calls,
     storage: { from(bucket) {
-      assert.equal(bucket, "profile-resumes");
+      assert.equal(bucket, "resumes");
       return {
         upload: async (path, bytes, options) => { calls.uploads.push({ path, bytes, options }); return { error: uploadError }; },
         remove: async paths => { calls.removals.push(paths); return { error: null }; },
       };
     } },
     from(table) {
-      assert.equal(table, "profile_resumes");
+      assert.equal(table, "resumes");
       return { insert(row) {
         calls.inserts.push(row);
         return { select: () => ({ single: async () => ({ data: { id: "version-id", ...row }, error: insertError }) }) };
