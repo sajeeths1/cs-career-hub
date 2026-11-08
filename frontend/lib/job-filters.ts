@@ -2,6 +2,22 @@
 export type PostedDateFilter = "any" | "today" | "week" | "month";
 export type LocationFilter = "any" | "near_me" | "custom";
 
+export function normalizeLocation(value: string): string {
+  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/** Any selected place may match, including a posting listing several offices.
+ * Commas belong to city/state names; each chip is a separate location.
+ * This is text matching, not geocoding, a distance radius, or remote eligibility.
+ */
+export function matchesAnyLocation(jobLocation: string | null, locations: readonly string[]): boolean {
+  const queries = locations.map(normalizeLocation).filter(Boolean);
+  if (!queries.length) return true;
+  const text = ` ${normalizeLocation(jobLocation ?? "")} `;
+  return queries.some((query) => text.includes(` ${query} `));
+}
+
 export const POSTED_DATE_FILTERS: { value: PostedDateFilter; label: string }[] = [
   { value: "any", label: "Any date" },
   { value: "today", label: "Today" },

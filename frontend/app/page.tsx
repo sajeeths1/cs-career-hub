@@ -18,6 +18,9 @@ import { NotificationSettingsTab } from "@/components/notification-settings";
 import { CompaniesTab } from "@/components/companies";
 import { DeleteAccount } from "@/components/delete-account";
 import { PriorityCompanyButton } from "@/components/priority-company-button";
+import { JobLocationFilter } from "@/components/job-location-filter";
+import { JobSkillBreakdown, SkillMatchBadge, type SkillMatchState } from "@/components/job-skill-match";
+import { getJobSkillMatch, meetsSkillMinimum, type JobSkillMatch } from "@/lib/job-skill-match";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,12 +40,13 @@ import {
   fetchJobsForTargetRoles,
   fetchOpenJobs,
   fetchProfile,
+  fetchUserSkillIds,
   removeApplication,
   setApplicationStatus,
 } from "@/lib/data";
 import { navItems } from "@/lib/mock-data";
 import { parseTargetRoles } from "@/lib/job-personalization";
-import { matchesPostedDate, matchesLocation, POSTED_DATE_FILTERS, type LocationFilter, type PostedDateFilter } from "@/lib/job-filters";
+import { matchesPostedDate, matchesLocation, matchesAnyLocation, POSTED_DATE_FILTERS, type LocationFilter, type PostedDateFilter } from "@/lib/job-filters";
 import { supabase } from "@/lib/supabase";
 import {
   TRACKER_COLUMNS,
@@ -108,8 +112,11 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [search, setSearch] = useState("");
   const [workMode, setWorkMode] = useState<WorkModeFilter>("all");
   const [jobPostedDate, setJobPostedDate] = useState<PostedDateFilter>("any");
-  const [jobLocation, setJobLocation] = useState<LocationFilter>("any");
-  const [jobLocationQuery, setJobLocationQuery] = useState("");
+  const [jobLocations, setJobLocations] = useState<string[]>([]);
+  const [minimumSkillMatch, setMinimumSkillMatch] = useState(0);
+  const [knownSkillIds, setKnownSkillIds] = useState<number[] | null>(null);
+  const [skillMatchState, setSkillMatchState] = useState<SkillMatchState>("loading");
+  const [skillRefresh, setSkillRefresh] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [trackerSearch, setTrackerSearch] = useState("");
   const [trackerWorkMode, setTrackerWorkMode] = useState<WorkModeFilter>("all");
@@ -133,6 +140,23 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [jobOpenError, setJobOpenError] = useState<string | null>(null);
   const jobOpenRequest = useRef(0);
   const [priorityCompanyIds, setPriorityCompanyIds] = useState<number[]>([]);
+
+  // Re-read after visiting Skills so manual edits and approved resume skills appear immediately.
+  // Cleanup prevents stale requests from overwriting a later load or another account's state.
+  useEffect(() => {
+    if (tab !== "jobs") return;
+    const controller = new AbortController();
+    setSkillMatchState("loading");
+    setKnownSkillIds(null);
+    fetchUserSkillIds(userId, controller.signal).then((ids) => {
+      if (controller.signal.aborted) return;
+      setKnownSkillIds(ids);
+      setSkillMatchState(ids.length ? "ready" : "empty");
+    }).catch(() => {
+      if (!controller.signal.aborted) setSkillMatchState("error");
+    });
+    return () => controller.abort();
+  }, [userId, tab, skillRefresh]);
 
   const loadPriorityCompanies = useCallback(async () => {
     try {
@@ -185,9 +209,9 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const recommendedJobs = personalized.key === rolesKey && targetRoles.length && !profileError ? personalized.jobs : [];
   const recommendationsLoading = profileLoading || (!profileError && !!targetRoles.length && (personalized.key !== rolesKey || personalized.loading));
   const recommendationError = personalized.key === rolesKey ? personalized.error : null;
-  // With no saved target roles, "For you" falls back to all jobs instead of showing nothing.
-  const viewJobs = jobView === "for_you" && targetRoles.length ? recommendedJobs : jobs;
-  const viewLoading = jobView === "for_you" && targetRoles.length ? recommendationsLoading : loading;
+  // Jobs uses saved skills; Dashboard retains its separate recommendation behavior.
+  const viewJobs = jobs;
+  const viewLoading = loading;
   const dashboardPersonalized = !profileLoading && !profileError && targetRoles.length > 0;
   const dashboardJobs = dashboardPersonalized ? recommendedJobs : jobs;
   const dashboardLoading = loading || profileLoading || (dashboardPersonalized && recommendationsLoading);
@@ -256,12 +280,19 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     return viewJobs.filter((job) => {
       if (workMode !== "all" && job.work_mode !== workMode) return false;
       if (!matchesPostedDate(job.posted_at, jobPostedDate)) return false;
-      if (!matchesLocation(job.location, jobLocation, profile?.preferred_location ?? null, jobLocationQuery)) return false;
+      if (!matchesAnyLocation(job.location, jobLocations)) return false;
+      if (!meetsSkillMinimum(getJobSkillMatch(job, knownSkillIds), minimumSkillMatch)) return false;
       if (!term) return true;
       const haystack = `${job.title} ${job.companies?.name ?? ""} ${job.location ?? ""}`;
       return haystack.toLowerCase().includes(term);
+    }).sort((a, b) => {
+      if (jobView !== "for_you" || skillMatchState !== "ready") return 0;
+      const left = getJobSkillMatch(a, knownSkillIds);
+      const right = getJobSkillMatch(b, knownSkillIds);
+      const ratio = (match: JobSkillMatch) => match.percent === null ? -1 : match.matched.length / match.total;
+      return ratio(right) - ratio(left);
     });
-  }, [viewJobs, search, workMode, jobPostedDate, jobLocation, jobLocationQuery, profile?.preferred_location]);
+  }, [viewJobs, search, workMode, jobPostedDate, jobLocations, minimumSkillMatch, knownSkillIds, jobView, skillMatchState]);
 
   const selectedJob =
     (directJob?.id === selectedJobId ? directJob : null) ??
@@ -315,8 +346,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     setSearch("");
     setWorkMode("all");
     setJobPostedDate("any");
-    setJobLocation("any");
-    setJobLocationQuery("");
+    setJobLocations([]);
+    setMinimumSkillMatch(0);
     setSelectedJobId(jobId);
     setJobOpenError(null);
     setTab("jobs");
@@ -402,14 +433,13 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               value={search}
               onChange={(event) => {
                 resetJobSelection();
-                if (!targetRoles.length || profileError) setJobView("all");
                 setSearch(event.target.value);
                 setTab("jobs");
               }}
             />
           </div>
           <Button aria-label="Refresh" size="icon" variant="outline" onClick={() => {
-            void loadAll(); void loadProfile(); void loadPriorityCompanies(); setRecommendationRefresh((n) => n + 1);
+            void loadAll(); void loadProfile(); void loadPriorityCompanies(); setRecommendationRefresh((n) => n + 1); setSkillRefresh((n) => n + 1);
           }}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
@@ -502,7 +532,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                     <Button size="sm" aria-pressed={jobView === "for_you"} variant={jobView === "for_you" ? "default" : "outline"} onClick={() => changeJobView("for_you")}>For you</Button>
                     <Button size="sm" aria-pressed={jobView === "all"} variant={jobView === "all" ? "default" : "outline"} onClick={() => changeJobView("all")}>All jobs</Button>
                   </div>
-                  {jobView === "for_you" && targetRoles.length > 0 && <p className="break-words text-sm text-muted-foreground">Based on saved roles: {targetRoles.join(", ")}. Matches use job-title keywords from your saved roles.</p>}
+                  <p className="text-xs leading-5 text-muted-foreground">{jobView === "for_you" ? "Loaded jobs ordered by your saved skill overlap. Jobs without recorded skills appear last." : "Newest loaded postings first."}</p>
                   <div className="flex flex-wrap gap-2 pt-2">
                     {WORK_MODE_FILTERS.map((filter) => (
                       <Button
@@ -523,29 +553,35 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                         {POSTED_DATE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </label>
-                    <LocationControls filter={jobLocation} onFilter={(filter) => { resetJobSelection(); setJobLocation(filter); }} query={jobLocationQuery} onQuery={(query) => { resetJobSelection(); setJobLocationQuery(query); }} preferred={profile?.preferred_location ?? null} />
-                    <UnavailableMatchFilter id="jobs" />
-                    <Button size="sm" variant="ghost" onClick={() => { resetJobSelection(); setSearch(""); setWorkMode("all"); setJobPostedDate("any"); setJobLocation("any"); setJobLocationQuery(""); }}>Clear filters</Button>
+                    <label className="grid gap-1 text-xs font-medium">Skill match
+                      <select aria-label="Minimum skill match" className="h-10 rounded-md border bg-card px-3 text-sm" value={minimumSkillMatch}
+                        onChange={(event) => { resetJobSelection(); setMinimumSkillMatch(Number(event.target.value)); }}>
+                        <option value={0}>Any match</option>
+                        <option value={50}>50% or more</option>
+                        <option value={75}>75% or more</option>
+                        <option value={100}>All recorded skills</option>
+                      </select>
+                    </label>
+                    <JobLocationFilter locations={jobLocations} onChange={(locations) => { resetJobSelection(); setJobLocations(locations); }} />
+                    <Button size="sm" variant="ghost" onClick={() => { resetJobSelection(); setSearch(""); setWorkMode("all"); setJobPostedDate("any"); setJobLocations([]); setMinimumSkillMatch(0); }}>Clear filters</Button>
                   </div>
                 </CardHeader>
                 <CardContent className="grid max-h-[70vh] gap-3 overflow-y-auto">
                   {viewLoading && <p role="status" className="text-sm text-muted-foreground">Loading jobs…</p>}
-                  {jobView === "for_you" && !profileLoading && profileError && <div role="alert" className="grid gap-3 text-sm">
-                    <p>Could not load your target roles: {profileError}</p><Button variant="outline" onClick={() => void loadProfile()}>Retry profile</Button>
+                  {skillMatchState === "loading" && <p role="status" className="text-sm text-muted-foreground">Loading skill matches…</p>}
+                  {skillMatchState === "error" && <div role="alert" className="grid gap-2 text-sm">
+                    <p>Could not load your skills. Use Any match to browse without a skill filter.</p><Button variant="outline" onClick={() => setSkillRefresh((n) => n + 1)}>Retry skills</Button>
                   </div>}
-                  {jobView === "for_you" && !profileError && !targetRoles.length && <p className="text-sm text-muted-foreground">
-                    Showing all jobs. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => setTab("personalization")}>Set target roles</button> to personalize this view.
+                  {skillMatchState === "empty" && <p className="text-sm text-muted-foreground">
+                    <button type="button" className="font-medium text-primary underline" onClick={() => setTab("skills")}>Add your skills</button> to see matches. Use Any match to browse all jobs.
                   </p>}
-                  {jobView === "for_you" && !viewLoading && !profileError && targetRoles.length > 0 && recommendationError && <div role="alert" className="grid gap-3 text-sm">
-                    <p>Could not load personalized jobs: {recommendationError}</p><Button variant="outline" onClick={() => setRecommendationRefresh((n) => n + 1)}>Retry recommendations</Button>
-                  </div>}
-                  {!viewLoading && filteredJobs.length === 0 && (jobView === "all" || !targetRoles.length || (!profileError && !recommendationError)) ? (
-                    <EmptyText text={jobView === "for_you" && targetRoles.length > 0 ? "No jobs match your target roles and current filters. Try All jobs or update your profile." : "No jobs match your search and filters."} />
-                  ) : null}
+                  {!viewLoading && skillMatchState !== "loading" && filteredJobs.length === 0 && <EmptyText text="No loaded jobs match these filters. Try another location or lower the skill minimum." />}
                   {!viewLoading && filteredJobs.map((job) => (
                     <JobRow
                       compact
                       job={job}
+                      skillMatch={getJobSkillMatch(job, knownSkillIds)}
+                      skillState={skillMatchState}
                       key={job.id}
                       selected={selectedJob?.id === job.id}
                       status={statusByJob.get(job.id)}
@@ -560,6 +596,10 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                 <JobDetail
                   isPriorityCompany={priorityCompanyIds.includes(selectedJob.company_id)}
                   job={selectedJob}
+                  skillMatch={getJobSkillMatch(selectedJob, knownSkillIds)}
+                  skillState={skillMatchState}
+                  onEditSkills={() => setTab("skills")}
+                  onRetrySkills={() => setSkillRefresh((n) => n + 1)}
                   onPriorityCompanyToggled={(companyId, priority) => setPriorityCompanyIds((ids) =>
                     priority ? [...new Set([...ids, companyId])] : ids.filter((id) => id !== companyId))}
                   status={statusByJob.get(selectedJob.id)}
@@ -640,6 +680,8 @@ function MatchScoreBadge() {
 
 function JobRow({
   job,
+  skillMatch,
+  skillState = "loading",
   status,
   compact = false,
   selected = false,
@@ -647,6 +689,8 @@ function JobRow({
   onSave,
 }: {
   job: Job;
+  skillMatch?: JobSkillMatch;
+  skillState?: SkillMatchState;
   status?: ApplicationStatus;
   compact?: boolean;
   selected?: boolean;
@@ -660,7 +704,7 @@ function JobRow({
       }`}
     >
       <button className="min-w-0 text-left" type="button" onClick={onOpen}>
-        <MatchScoreBadge />
+        {skillMatch ? <SkillMatchBadge match={skillMatch} state={skillState} /> : <MatchScoreBadge />}
         <h3 className="mt-2 truncate text-sm font-semibold hover:underline">{job.title}</h3>
         <p className="mt-1 truncate text-sm text-muted-foreground">
           {job.companies?.name ?? "Unknown company"} · {job.location ?? "Location not listed"}
@@ -691,6 +735,10 @@ function JobRow({
 
 function JobDetail({
   job,
+  skillMatch,
+  skillState,
+  onEditSkills,
+  onRetrySkills,
   status,
   onTrack,
   userId,
@@ -698,6 +746,10 @@ function JobDetail({
   onPriorityCompanyToggled,
 }: {
   job: Job;
+  skillMatch: JobSkillMatch;
+  skillState: SkillMatchState;
+  onEditSkills: () => void;
+  onRetrySkills: () => void;
   status?: ApplicationStatus;
   onTrack: (status: ApplicationStatus) => void;
   userId: string;
@@ -709,7 +761,7 @@ function JobDetail({
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <MatchScoreBadge />
+            <SkillMatchBadge match={skillMatch} state={skillState} />
             <CardTitle className="mt-2 text-xl">{job.title}</CardTitle>
             <CardDescription className="mt-1">
               {job.companies?.name ?? "Unknown company"} · {job.location ?? "Location not listed"} ·{" "}
@@ -740,6 +792,7 @@ function JobDetail({
             Open posting
           </a>
         </div>
+        <JobSkillBreakdown match={skillMatch} state={skillState} onEditSkills={onEditSkills} onRetry={onRetrySkills} />
         <section aria-label="Application status" className="rounded-md border p-3">
           <h2 className="mb-2 text-sm font-semibold">Application status</h2>
           <div className="flex flex-wrap gap-2">
