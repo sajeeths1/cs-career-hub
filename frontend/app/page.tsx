@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { AuthScreen } from "@/components/auth-screen";
 import { ProfileForm } from "@/components/profile-form";
+import { ResumeLibrary, JobResumeSelect, useResumeLibrary, type ResumeLibraryModel } from "@/components/resume-library";
 import { SkillDevelopment } from "@/components/skill-development";
 import { NotificationBell } from "@/components/notification-bell";
 import { NotificationSettingsTab } from "@/components/notification-settings";
@@ -37,7 +38,9 @@ import {
   fetchApplications,
   fetchPriorityCompanyIds,
   fetchJob,
+  fetchJobSkillIds,
   fetchJobsForTargetRoles,
+  fetchKnownSkillIds,
   fetchOpenJobs,
   fetchProfile,
   fetchUserSkillIds,
@@ -107,8 +110,9 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState("dashboard");
   const [resumeResult, setResumeResult] = useState<ParsedResume | null>(null);
+  const resumeLibrary = useResumeLibrary(userId, resumeResult);
   const [resumeDraft, setResumeDraft] = useState<ResumeDraft | null>(null);
-  const fillProfileFromResume = (draft: ResumeDraft) => { setResumeDraft(draft); setTab("personalization"); };
+  const fillProfileFromResume = (draft: ResumeDraft) => { setResumeDraft(draft); setTab("profile"); };
   const [search, setSearch] = useState("");
   const [workMode, setWorkMode] = useState<WorkModeFilter>("all");
   const [jobPostedDate, setJobPostedDate] = useState<PostedDateFilter>("any");
@@ -140,6 +144,22 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [jobOpenError, setJobOpenError] = useState<string | null>(null);
   const jobOpenRequest = useRef(0);
   const [priorityCompanyIds, setPriorityCompanyIds] = useState<number[]>([]);
+  const [knownSkillIds, setKnownSkillIds] = useState<number[]>([]);
+  const [jobSkillIds, setJobSkillIds] = useState<Map<number, number[]>>(() => new Map());
+  const [jobMatchFilter, setJobMatchFilter] = useState<MatchFilter>("any");
+  const [trackerMatchFilter, setTrackerMatchFilter] = useState<MatchFilter>("any");
+
+  const loadKnownSkills = useCallback(async () => {
+    try {
+      setKnownSkillIds(await fetchKnownSkillIds(userId));
+    } catch {
+      // Non-critical: scores stay "Pending" and the Skills tab surfaces load errors.
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void loadKnownSkills();
+  }, [loadKnownSkills]);
 
   // Re-read after visiting Skills so manual edits and approved resume skills appear immediately.
   // Cleanup prevents stale requests from overwriting a later load or another account's state.
@@ -261,6 +281,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     try {
       await removeApplication(applicationId);
       await reloadApplications();
+      await resumeLibrary.reload();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -275,9 +296,32 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     return map;
   }, [applications]);
 
+  // Every job the page can show, as a stable key so tags reload only when the set changes.
+  const scoredJobIds = useMemo(() => [...new Set([
+    ...jobs.map((job) => job.id),
+    ...personalized.jobs.map((job) => job.id),
+    ...applications.map((app) => app.job_id),
+    ...(directJob ? [directJob.id] : []),
+  ])].sort((a, b) => a - b).join(","), [jobs, personalized.jobs, applications, directJob]);
+
+  useEffect(() => {
+    if (!scoredJobIds) return;
+    const controller = new AbortController();
+    fetchJobSkillIds(scoredJobIds.split(",").map(Number), controller.signal)
+      .then((rows) => { if (!controller.signal.aborted) setJobSkillIds(rows); })
+      .catch(() => { /* Non-critical: scores stay "Pending". */ });
+    return () => controller.abort();
+  }, [scoredJobIds]);
+
+  const matchFor = useCallback(
+    (jobId: number) => matchScore(jobSkillIds.get(jobId) ?? [], knownSkillIds),
+    [jobSkillIds, knownSkillIds],
+  );
+
   const filteredJobs = useMemo(() => {
     const term = search.trim().toLowerCase();
     return viewJobs.filter((job) => {
+      if (!matchesScoreFilter(matchFor(job.id), jobMatchFilter)) return false;
       if (workMode !== "all" && job.work_mode !== workMode) return false;
       if (!matchesPostedDate(job.posted_at, jobPostedDate)) return false;
       if (!matchesAnyLocation(job.location, jobLocations)) return false;
@@ -305,6 +349,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     const term = trackerSearch.trim().toLowerCase();
     return applications.filter((app) => {
       if (trackerStatus !== "all" && normalizeStatus(app.status) !== trackerStatus) return false;
+      if (!matchesScoreFilter(matchFor(app.job_id), trackerMatchFilter)) return false;
       if (trackerWorkMode !== "all" && app.jobs?.work_mode !== trackerWorkMode) return false;
       if (!matchesPostedDate(app.jobs?.posted_at ?? null, trackerPostedDate)) return false;
       if (!matchesLocation(app.jobs?.location ?? null, trackerLocation, profile?.preferred_location ?? null, trackerLocationQuery)) return false;
@@ -373,7 +418,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     const jobParam = params.get("job");
     const tabParam = params.get("tab");
     if (jobParam && Number.isInteger(Number(jobParam))) void openJob(Number(jobParam));
-    else if (tabParam) setTab(tabParam);
+    else if (tabParam) setTab(tabParam === "personalization" || tabParam === "settings" ? "profile" : tabParam);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -468,7 +513,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               <TabsTrigger value="jobs">Jobs</TabsTrigger>
               <TabsTrigger value="tracker">Tracker</TabsTrigger>
               <TabsTrigger value="skills">Skills</TabsTrigger>
-              <TabsTrigger value="personalization">Personalization</TabsTrigger>
+              <TabsTrigger value="profile">Profile</TabsTrigger>
             </TabsList>
 
             {/* ---------------- Dashboard ---------------- */}
@@ -492,7 +537,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                 <Card>
                   <CardHeader className="flex flex-row items-start justify-between gap-4">
                     <div><CardTitle>{dashboardPersonalized ? "Jobs for you" : "Newest jobs"}</CardTitle>
-                      <CardDescription>{dashboardPersonalized ? "Based on your saved target roles. Match scores are pending." : "Add target roles in your profile to personalize this list."}</CardDescription></div>
+                      <CardDescription>{dashboardPersonalized ? "Based on your saved target roles." : "Add target roles in your profile to personalize this list."}</CardDescription></div>
                     <Button size="sm" variant="outline" onClick={() => { changeJobView(dashboardPersonalized ? "for_you" : "all"); setTab("jobs"); }}>See all jobs</Button>
                   </CardHeader>
                   <CardContent className="grid gap-2">
@@ -500,7 +545,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                     {!dashboardLoading && recommendationError && <p role="alert" className="text-sm text-red-600">Could not load personalized jobs. Open Jobs to retry.</p>}
                     {!dashboardLoading && !recommendationError && unseenDashboardJobs.length === 0 && <EmptyText text="No new jobs to show yet. Browse all jobs or update your target roles." />}
                     {!dashboardLoading && unseenDashboardJobs.slice(0, 4).map((job) => (
-                      <JobRow key={job.id} job={job} onOpen={() => void openJob(job.id, dashboardPersonalized ? "for_you" : "all")} onSave={() => void track(job.id, "saved")} />
+                      <JobRow key={job.id} job={job} match={matchFor(job.id)} onOpen={() => void openJob(job.id, dashboardPersonalized ? "for_you" : "all")} onSave={() => void track(job.id, "saved")} />
                     ))}
                   </CardContent>
                 </Card>
@@ -510,7 +555,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                       {priorityJobs.length ? priorityJobs.map((job) => <button className="border-b pb-3 text-left last:border-0" key={job.id} onClick={() => void openJob(job.id)}>
                         <span className="block text-sm font-semibold hover:underline">{job.title}</span>
                         <span className="text-xs text-muted-foreground">{job.companies?.name} · {formatPosted(job.posted_at)}</span>
-                      </button>) : <p className="text-sm text-muted-foreground">No new postings from your priority companies. <button className="text-primary underline" onClick={() => setTab("personalization")}>Choose companies</button>.</p>}
+                      </button>) : <p className="text-sm text-muted-foreground">No new postings from your priority companies. <button className="text-primary underline" onClick={() => setTab("profile")}>Choose companies</button>.</p>}
                     </CardContent>
                   </Card>
                   <Card><CardHeader><CardTitle>Skills to develop</CardTitle><CardDescription>See which skills appear in current job postings.</CardDescription></CardHeader>
@@ -583,6 +628,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                       skillMatch={getJobSkillMatch(job, knownSkillIds)}
                       skillState={skillMatchState}
                       key={job.id}
+                      match={matchFor(job.id)}
                       selected={selectedJob?.id === job.id}
                       status={statusByJob.get(job.id)}
                       onOpen={() => { resetJobSelection(); setSelectedJobId(job.id); }}
@@ -605,6 +651,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                   status={statusByJob.get(selectedJob.id)}
                   onTrack={(status) => track(selectedJob.id, status)}
                   userId={userId}
+                  resumeSelection={statusByJob.has(selectedJob.id) ? <JobResumeSelect jobId={selectedJob.id} jobTitle={selectedJob.title} library={resumeLibrary} onProfile={() => setTab("profile")} /> : undefined}
                 />
               ) : (
                 <Card>
@@ -626,17 +673,24 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                 preferredLocation={profile?.preferred_location ?? null}
                 status={trackerStatus} onStatus={setTrackerStatus}
                 sort={trackerSort} onSort={setTrackerSort}
-                busyJobId={busyJobId} onChange={track} onOpen={openJob} onRemove={untrack} />
+                matchFor={matchFor} matchFilter={trackerMatchFilter} onMatchFilter={setTrackerMatchFilter}
+                busyJobId={busyJobId} onChange={track} onOpen={openJob} onRemove={untrack}
+                resumeLibrary={resumeLibrary} onProfile={() => setTab("profile")} />
             </TabsContent>
 
             <TabsContent value="skills">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card p-4 text-sm">
+                <p>Keep different resume versions and choose one for each tracked job.</p>
+                <Button variant="outline" onClick={() => setTab("profile")}>Open resume library</Button>
+              </div>
               <SkillDevelopment userId={userId} jobs={jobs} jobsLoading={loading}
-                resumeResult={resumeResult} onResumeResult={setResumeResult} onProfileDraft={fillProfileFromResume} />
+                resumeResult={resumeResult} onResumeResult={setResumeResult} onProfileDraft={fillProfileFromResume} onSkillsChanged={() => void loadKnownSkills()} />
             </TabsContent>
 
             {/* ---------------- Personalization ---------------- */}
-            <TabsContent value="personalization" className="grid gap-6">
-              <div><h2 className="text-2xl font-semibold">Personalization</h2><p className="text-sm text-muted-foreground">Your profile and preferences shape your job list and alerts.</p></div>
+            <TabsContent value="profile" className="grid gap-6">
+              <div><h2 className="text-2xl font-semibold">Profile</h2><p className="text-sm text-muted-foreground">Your details, resume versions, job preferences and alerts.</p></div>
+              <ResumeLibrary userId={userId} library={resumeLibrary} />
               <Card><CardHeader><CardTitle>Your profile and job preferences</CardTitle><CardDescription>Save target roles and a preferred location to personalize jobs and the location filter.</CardDescription></CardHeader>
                 <CardContent><ProfileForm userId={userId} resumeDraft={resumeDraft} onSaved={(saved) => {
                   setResumeDraft(null);
@@ -652,7 +706,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               </div>
               <section className="grid gap-3" aria-label="Your data">
                 <h3 className="font-semibold">Your data</h3>
-                <p className="text-sm text-muted-foreground">Add skills from a resume in Skills. Your resume file is not saved by the site.</p>
+                <p className="text-sm text-muted-foreground">Resume versions stay private in your library until you delete them or your account. Use Skills to scan a resume for skills. Each job’s resume choice records the version you plan to submit.</p>
                 <DeleteAccount />
               </section>
             </TabsContent>
@@ -667,13 +721,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 // Small pieces
 // ---------------------------------------------------------------------------
 
-function MatchScoreBadge() {
+const MATCH_EXPLANATION = "Share of the skills mentioned in this posting that are in My skills. Postings can mention optional skills, so treat this as a guide.";
+const MATCH_PENDING_EXPLANATION = "No score yet: this posting has no stored skills, or you have not added any skills.";
+
+function MatchScoreBadge({ match }: { match: JobMatch | null }) {
   return (
     <span
       className="inline-flex w-fit items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-800"
-      title="A match score has not been calculated for this job yet."
+      title={match ? MATCH_EXPLANATION : MATCH_PENDING_EXPLANATION}
     >
-      Match score: Pending
+      Skill match: {formatMatch(match)}
     </span>
   );
 }
@@ -744,6 +801,7 @@ function JobDetail({
   userId,
   isPriorityCompany,
   onPriorityCompanyToggled,
+  resumeSelection,
 }: {
   job: Job;
   skillMatch: JobSkillMatch;
@@ -755,6 +813,7 @@ function JobDetail({
   userId: string;
   isPriorityCompany: boolean;
   onPriorityCompanyToggled: (companyId: number, priority: boolean) => void;
+  resumeSelection?: React.ReactNode;
 }) {
   return (
     <Card className="content-start">
@@ -810,6 +869,7 @@ function JobDetail({
           </div>
           {!status ? <p className="mt-2 text-xs text-muted-foreground">Choose a status to start tracking this job.</p> : null}
         </section>
+        {resumeSelection && <section className="rounded-md border p-3">{resumeSelection}</section>}
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Job description</h2>
           <p className="max-h-[55vh] overflow-y-auto whitespace-pre-line text-sm leading-6 text-muted-foreground">
@@ -821,14 +881,13 @@ function JobDetail({
   );
 }
 
-function UnavailableMatchFilter({ id }: { id: string }) {
+function MatchScoreFilter({ label, value, onChange }: { label: string; value: MatchFilter; onChange: (value: MatchFilter) => void }) {
   return (
-    <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-      Match score
-      <select aria-label="Filter by match score (not available yet)" aria-describedby={`${id}-match-score-help`} className="h-10 rounded-md border bg-muted px-3 text-sm" disabled value="unavailable">
-        <option value="unavailable">Scores not available yet</option>
+    <label className="grid gap-1 text-xs font-medium">
+      Skill match
+      <select aria-label={label} className="h-10 rounded-md border bg-card px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value as MatchFilter)}>
+        {MATCH_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
-      <span id={`${id}-match-score-help`} className="sr-only">Match scoring has not been implemented for this project yet.</span>
     </label>
   );
 }
@@ -852,7 +911,8 @@ function LocationControls({ filter, onFilter, query, onQuery, preferred }: {
 
 function TrackerView({ rows, allRows, search, onSearch, workMode, onWorkMode, postedDate, onPostedDate,
   location, onLocation, locationQuery, onLocationQuery, preferredLocation, status, onStatus,
-  sort, onSort, busyJobId, onChange, onOpen, onRemove,
+  sort, onSort, matchFor, matchFilter, onMatchFilter, busyJobId, onChange, onOpen, onRemove,
+  resumeLibrary, onProfile,
 }: {
   rows: Application[]; allRows: Application[]; search: string; onSearch: (value: string) => void;
   workMode: WorkModeFilter; onWorkMode: (value: WorkModeFilter) => void;
@@ -860,8 +920,10 @@ function TrackerView({ rows, allRows, search, onSearch, workMode, onWorkMode, po
   location: LocationFilter; onLocation: (value: LocationFilter) => void;
   locationQuery: string; onLocationQuery: (value: string) => void; preferredLocation: string | null;
   status: string; onStatus: (value: string) => void; sort: string; onSort: (value: string) => void;
+  matchFor: (jobId: number) => JobMatch | null; matchFilter: MatchFilter; onMatchFilter: (value: MatchFilter) => void;
   busyJobId: number | null; onChange: (jobId: number, status: ApplicationStatus) => void;
   onOpen: (jobId: number) => void; onRemove: (applicationId: number, jobId: number) => void;
+  resumeLibrary: ResumeLibraryModel; onProfile: () => void;
 }) {
   return <div className="space-y-5">
     <div><h2 className="text-2xl font-semibold">Tracker</h2>
@@ -890,8 +952,8 @@ function TrackerView({ rows, allRows, search, onSearch, workMode, onWorkMode, po
         </select>
       </label>
       <LocationControls filter={location} onFilter={onLocation} query={locationQuery} onQuery={onLocationQuery} preferred={preferredLocation} />
-      <UnavailableMatchFilter id="tracker" />
-      <Button variant="ghost" size="sm" onClick={() => { onSearch(""); onStatus("all"); onWorkMode("all"); onPostedDate("any"); onLocation("any"); onLocationQuery(""); }}>Clear filters</Button>
+      <MatchScoreFilter label="Filter tracked jobs by match score" value={matchFilter} onChange={onMatchFilter} />
+      <Button variant="ghost" size="sm" onClick={() => { onSearch(""); onStatus("all"); onWorkMode("all"); onPostedDate("any"); onLocation("any"); onLocationQuery(""); onMatchFilter("any"); }}>Clear filters</Button>
     </CardContent></Card>
     <div className="flex items-center justify-between gap-3 text-sm">
       <p className="font-medium">{rows.length} of {allRows.length} tracked jobs</p>
@@ -907,6 +969,7 @@ function TrackerView({ rows, allRows, search, onSearch, workMode, onWorkMode, po
         <thead className="bg-muted/70 text-muted-foreground"><tr>
           <th className="px-4 py-3 font-medium">Company</th><th className="px-4 py-3 font-medium">Role</th>
           <th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium">Match</th>
+          <th className="px-4 py-3 font-medium">Resume</th>
           <th className="px-4 py-3 font-medium">Last update</th><th className="px-4 py-3 font-medium">Location</th>
           <th className="px-4 py-3 font-medium">Actions</th>
         </tr></thead><tbody>
@@ -916,7 +979,8 @@ function TrackerView({ rows, allRows, search, onSearch, workMode, onWorkMode, po
             <td className="px-4 py-3"><select aria-label={`Status for ${app.jobs?.title ?? "tracked job"}`} className="h-9 rounded-md border bg-card px-2" disabled={busyJobId === app.job_id} value={normalizeStatus(app.status)} onChange={(event) => onChange(app.job_id, event.target.value as ApplicationStatus)}>
               {TRACKER_COLUMNS.map((column) => <option key={column.status} value={column.status}>{column.label}</option>)}
             </select></td>
-            <td className="px-4 py-3 text-muted-foreground" title="Match scoring is not available yet">Pending</td>
+            <td className="whitespace-nowrap px-4 py-3 text-muted-foreground" title={matchFor(app.job_id) ? MATCH_EXPLANATION : MATCH_PENDING_EXPLANATION}>{formatMatch(matchFor(app.job_id))}</td>
+            <td className="px-4 py-3"><JobResumeSelect jobId={app.job_id} jobTitle={app.jobs?.title ?? "tracked job"} library={resumeLibrary} onProfile={onProfile} /></td>
             <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{new Date(app.updated_at).toLocaleDateString()}</td>
             <td className="max-w-[180px] px-4 py-3 text-muted-foreground">{app.jobs?.location ?? "Not listed"}</td>
             <td className="whitespace-nowrap px-4 py-3"><Button size="sm" variant="ghost" disabled={busyJobId === app.job_id} onClick={() => { if (window.confirm("Remove this job from your tracker?")) onRemove(app.id, app.job_id); }}>Remove</Button></td>

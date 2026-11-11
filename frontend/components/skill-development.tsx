@@ -5,17 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ResumeUpload } from "@/components/resume-upload";
-import { fetchSkillDevelopment, saveLearningGoal, setKnownSkill } from "@/lib/data";
+import { SkillsMultiSelect } from "@/components/skills-multi-select";
+import { addKnownSkill, fetchSkillDevelopment, saveLearningGoal, setKnownSkill } from "@/lib/data";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { externalUrl, goalFor, rankSkills, resourcesFor, type LearningGoal, type LearningResource, type Skill } from "@/lib/skill-development";
 import type { Job } from "@/lib/types";
 
 type SkillData = Awaited<ReturnType<typeof fetchSkillDevelopment>>;
 
-export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onResumeResult, onProfileDraft }: {
+export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onResumeResult, onProfileDraft, onSkillsChanged }: {
   userId: string; jobs: Job[]; jobsLoading: boolean;
   resumeResult: ParsedResume | null; onResumeResult: (result: ParsedResume | null) => void;
   onProfileDraft: (draft: ResumeDraft) => void;
+  onSkillsChanged?: () => void;
 }) {
   const [data, setData] = useState<SkillData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +25,6 @@ export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onRe
   const [busy, setBusy] = useState(false);
   const [role, setRole] = useState("");
   const [appliedRole, setAppliedRole] = useState("");
-  const [skillSearch, setSkillSearch] = useState("");
   const [goalFilter, setGoalFilter] = useState("all");
   const [attempt, setAttempt] = useState(0);
 
@@ -54,9 +55,27 @@ export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onRe
   }, []);
 
   function toggleSkill(skill: Skill, known: boolean) {
-    void mutate(() => setKnownSkill(userId, skill.id, known), (current) => ({ ...current,
+    void mutate(async () => { await setKnownSkill(userId, skill.id, known); onSkillsChanged?.(); }, (current) => ({ ...current,
       knownIds: known ? [...new Set([...current.knownIds, skill.id])] : current.knownIds.filter((id) => id !== skill.id),
     }));
+  }
+
+  async function createSkill(name: string): Promise<boolean> {
+    setBusy(true);
+    setError(null);
+    try {
+      const skill = await addKnownSkill(name);
+      setData((current) => current ? {
+        ...current,
+        skills: [...current.skills.filter((row) => row.id !== skill.id), skill].sort((a, b) => a.name.localeCompare(b.name)),
+        knownIds: [...new Set([...current.knownIds, skill.id])],
+      } : current);
+      onSkillsChanged?.();
+      return true;
+    } catch (err) {
+      setError((err as Error).message);
+      return false;
+    } finally { setBusy(false); }
   }
 
   function goalStatus(skillId: number, status: LearningGoal["status"] | null) {
@@ -70,8 +89,8 @@ export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onRe
     <div><h2 className="text-2xl font-semibold">Skill development</h2>
       <p className="mt-1 text-sm text-muted-foreground">Build a learning plan around the skills in real job postings.</p>
     </div>
-    <ResumeUpload userId={userId} compact result={resumeResult} onResult={onResumeResult}
-      onProfileDraft={onProfileDraft} onSkillsSaved={() => setAttempt((n) => n + 1)} />
+    <ResumeUpload compact result={resumeResult} onResult={onResumeResult}
+      onProfileDraft={onProfileDraft} onSkillsSaved={() => { setAttempt((n) => n + 1); onSkillsChanged?.(); }} />
     <Card>
       <CardHeader>
         <CardTitle>My skills</CardTitle>
@@ -84,18 +103,7 @@ export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onRe
         </div>}
         {(loading || jobsLoading) && <p role="status" className="text-sm text-muted-foreground">Loading skills and job postings…</p>}
         {busy && <p role="status" className="text-sm text-muted-foreground">Saving changes…</p>}
-        {data && <fieldset disabled={busy || loading} className="grid min-w-0 gap-3">
-          <legend className="mb-3 text-sm font-semibold">My skills · {data.knownIds.length} selected</legend>
-          <Input aria-label="Find a skill" placeholder="Find a skill" value={skillSearch} onChange={(event) => setSkillSearch(event.target.value)} />
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {data.skills.filter((skill) => skill.name.toLowerCase().includes(skillSearch.trim().toLowerCase())).map((skill) =>
-              <label key={skill.id} className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={data.knownIds.includes(skill.id)} onChange={(event) => toggleSkill(skill, event.target.checked)} />{skill.name}
-              </label>)}
-          </div>
-          {!data.skills.some((skill) => skill.name.toLowerCase().includes(skillSearch.trim().toLowerCase())) &&
-            <p className="text-sm text-muted-foreground">No skills match this search.</p>}
-        </fieldset>}
+        {data && <SkillsMultiSelect skills={data.skills} knownIds={data.knownIds} disabled={busy || loading} onToggle={toggleSkill} onCreate={createSkill} />}
         <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); setAppliedRole(role.trim()); }}>
           <label className="grid gap-2 text-sm font-medium">Focus on a job title (optional)
             <Input value={role} onChange={(event) => setRole(event.target.value)} placeholder="For example, frontend or data" maxLength={150} />

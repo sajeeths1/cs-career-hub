@@ -10,13 +10,17 @@ async function moduleSource(file) {
 const asUrl = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const resumeUrl = asUrl(await moduleSource('../lib/resume.ts'));
 const parsed = { text: 'Alex Morgan\nPython and SQL', details: { full_name: 'Alex Morgan', major: '', school: '', email: '', phone: '', links: [], sections: {} }, metadata: { pages: 1, ocr_pages: 0 } };
-const state = { worker: async () => parsed, calls: 0, catalogFailure: false, tokens: [] };
+const state = { worker: async () => parsed, calls: 0, saveFailure: false, uploadFailure: false, tokens: [], saves: [], uploads: [], removed: [] };
 const stateKey = '__careerHubResumeRouteTest';
 globalThis[stateKey] = state;
 const mockSupabase = asUrl(`export function createClient(url, key, options) {
  const state = globalThis.${stateKey};
  return { auth: { getUser: async token => { state.tokens.push([token, options.global.headers.Authorization]); return {data:{user:token === 'expired' ? null : {id:token}}, error:null}; } },
- from: table => ({select: () => ({order: () => ({range: async () => state.catalogFailure ? {error:{message:'Catalog offline'}} : {data:table === 'skills' ? [{id:1,name:'Python'},{id:2,name:'SQL'}] : [],error:null} })})}) };
+ storage: { from: bucket => ({
+  upload: async (path, bytes, opts) => { if (state.uploadFailure) return {error:{message:'Storage offline'}}; state.uploads.push({bucket, path, size: bytes.length, ...opts, auth: options.global.headers.Authorization}); return {error:null}; },
+  remove: async paths => { state.removed.push(paths); return {error:null}; },
+ }) },
+ rpc: async (name, params) => { if (state.saveFailure) return {error:{message:'Database offline'}}; state.saves.push([name, params, options.global.headers.Authorization]); return {data:'new-resume-id',error:null}; } };
 }`);
 const mockWorker = asUrl(`export class ResumeWorkerError extends Error {constructor(message,status=422){super(message);this.status=status;}} export async function runResumeWorker(bytes,signal){ const state=globalThis.${stateKey};state.calls++;return state.worker(bytes,signal); }`);
 const routeSource = (await moduleSource('../app/api/resume/route.ts'))
@@ -41,22 +45,88 @@ test('resume endpoint bounds both advertised and streamed document sizes', async
  assert.equal((await POST(request('student',new Uint8Array(5*1024*1024+1)))).status, 413);
  assert.equal(state.calls, before);
 });
-test('resume endpoint returns uncached extraction with live skill matches and user credentials', async () => {
- const response = await POST(request());
+const PDF = '%PDF-1.7 resume';
+test('resume endpoint stores the file and queues the text with user credentials', async () => {
+ const response = await POST(request('student',PDF,{'X-Resume-Filename':encodeURIComponent('Alex Résumé.pdf')}));
  assert.equal(response.status, 200);
  assert.equal(response.headers.get('Cache-Control'), 'no-store');
  const result = await response.json();
- assert.deepEqual(result.skills.map(skill=>skill.name), ['Python','SQL']);
+ assert.equal(result.scan,'queued');
+ assert.equal(result.resume_id,'new-resume-id');
+ assert.deepEqual(result.warnings,[]);
  assert.deepEqual(state.tokens.at(-1), ['student','Bearer student']);
+ const upload = state.uploads.at(-1);
+ assert.match(upload.path,/^student\/[0-9a-f-]{36}\.pdf$/);
+ assert.deepEqual({...upload,path:null},{bucket:'resumes',path:null,size:PDF.length,contentType:'application/pdf',upsert:false,auth:'Bearer student'});
+ assert.deepEqual(state.saves.at(-1), ['save_uploaded_resume_version',{p_original_filename:'Alex Résumé.pdf',p_storage_path:upload.path,p_mime_type:'application/pdf',p_file_size_bytes:PDF.length,p_extracted_text:parsed.text},'Bearer student']);
 });
-test('catalog outage preserves extraction and shows a warning', async () => {
- state.catalogFailure = true;
+test('file type comes from the bytes, not the name, and the path ignores the name', async () => {
+ await POST(request('student','PK\u0003\u0004 docx',{'X-Resume-Filename':encodeURIComponent('../../evil.pdf')}));
+ assert.match(state.uploads.at(-1).path,/^student\/[0-9a-f-]{36}\.docx$/);
+ assert.match(state.uploads.at(-1).contentType,/wordprocessingml/);
+});
+test('image resumes retain their file in the same bucket', async () => {
+ const before = state.uploads.length;
+ const response = await POST(request('student',new Uint8Array([0xff,0xd8,0xff,0xe0]),{'X-Resume-Filename':'photo.pdf'}));
+ assert.equal((await response.json()).scan,'queued');
+ assert.equal(state.uploads.length,before + 1);
+ assert.match(state.saves.at(-1)[1].p_storage_path,/^student\/[0-9a-f-]{36}\.jpg$/);
+ assert.equal(state.saves.at(-1)[1].p_mime_type,'image/jpeg');
+});
+test('unknown types retain text only if accepted by the parser', async () => {
+ const before = state.uploads.length;
+ await POST(request());
+ assert.equal(state.saves.at(-1)[1].p_mime_type,'application/octet-stream');
+ assert.equal(state.saves.at(-1)[1].p_storage_path,null);
+ assert.equal(state.uploads.length,before);
+});
+test('missing or malformed filenames fall back to a safe default', async () => {
+ await POST(request());
+ assert.equal(state.saves.at(-1)[1].p_original_filename,'resume');
+ await POST(request('student','resume',{'X-Resume-Filename':'%E0%A4%A'}));
+ assert.equal(state.saves.at(-1)[1].p_original_filename,'resume');
+});
+test('successful uploads retain previous files and save each new file once', async () => {
+ const removed = state.removed.length;
+ const uploaded = state.uploads.length;
+ await POST(request('student',PDF));
+ await POST(request('student',PDF));
+ assert.equal(state.removed.length, removed);
+ assert.equal(state.uploads.length, uploaded + 2);
+ assert.notEqual(state.uploads.at(-1).path, state.uploads.at(-2).path);
+});
+test('a failed file upload still queues the scan and warns', async () => {
+ state.uploadFailure = true;
  try {
- const result = await (await POST(request())).json();
+ const result = await (await POST(request('student',PDF))).json();
+ assert.equal(result.scan,'queued');
+ assert.match(result.warnings[0],/could not keep a copy/);
+ assert.equal(state.saves.at(-1)[1].p_storage_path,null);
+ } finally { state.uploadFailure = false; }
+});
+test('a failed save removes the file it just uploaded', async () => {
+ state.saveFailure = true;
+ try { await POST(request('student',PDF)); } finally { state.saveFailure = false; }
+ assert.deepEqual(state.removed.at(-1),[state.uploads.at(-1).path]);
+});
+test('a failed save preserves extraction and shows a warning', async () => {
+ state.saveFailure = true;
+ try {
+ const response = await POST(request());
+ assert.equal(response.status,200);
+ const result = await response.json();
  assert.equal(result.details.full_name,'Alex Morgan');
- assert.deepEqual(result.skills,[]);
- assert.match(result.warnings[0],/could not be loaded/);
- } finally { state.catalogFailure = false; }
+ assert.equal(result.scan,'failed');
+ assert.match(result.warnings[0],/could not save/);
+ } finally { state.saveFailure = false; }
+});
+test('nothing is saved when parsing fails', async () => {
+ const saves = state.saves.length;
+ const uploads = state.uploads.length;
+ state.worker = async () => { throw new ResumeWorkerError('Remove the PDF password before uploading.'); };
+ try { await POST(request('student',PDF)); } finally { state.worker = async () => parsed; }
+ assert.equal(state.saves.length,saves);
+ assert.equal(state.uploads.length,uploads);
 });
 test('worker errors are actionable and release capacity for retry', async () => {
  state.worker = async () => { throw new ResumeWorkerError('Remove the PDF password before uploading.'); };
