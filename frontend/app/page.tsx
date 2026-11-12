@@ -19,6 +19,11 @@ import { NotificationSettingsTab } from "@/components/notification-settings";
 import { CompaniesTab } from "@/components/companies";
 import { DeleteAccount } from "@/components/delete-account";
 import { PriorityCompanyButton } from "@/components/priority-company-button";
+import { JobsFilters } from "@/components/jobs-filters";
+import { summarizeJobLocation } from "@/lib/job-presentation";
+import { MATCH_FILTERS, formatMatch, matchScore, matchesScoreFilter, type JobMatch, type MatchFilter } from "@/lib/job-match";
+import { JobSkillBreakdown, SkillMatchBadge, type SkillMatchState } from "@/components/job-skill-match";
+import { getJobSkillMatch, meetsSkillMinimum, type JobSkillMatch } from "@/lib/job-skill-match";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +46,7 @@ import {
   fetchKnownSkillIds,
   fetchOpenJobs,
   fetchProfile,
+  fetchUserSkillIds,
   removeApplication,
   setApplicationStatus,
 } from "@/lib/data";
@@ -114,8 +120,11 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [search, setSearch] = useState("");
   const [workMode, setWorkMode] = useState<WorkModeFilter>("all");
   const [jobPostedDate, setJobPostedDate] = useState<PostedDateFilter>("any");
-  const [jobLocation, setJobLocation] = useState<LocationFilter>("any");
-  const [jobLocationQuery, setJobLocationQuery] = useState("");
+  const [jobLocations, setJobLocations] = useState<string[]>([]);
+  const [minimumSkillMatch, setMinimumSkillMatch] = useState(0);
+  const [knownSkillIds, setKnownSkillIds] = useState<number[] | null>(null);
+  const [skillMatchState, setSkillMatchState] = useState<SkillMatchState>("loading");
+  const [skillRefresh, setSkillRefresh] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [trackerSearch, setTrackerSearch] = useState("");
   const [trackerWorkMode, setTrackerWorkMode] = useState<WorkModeFilter>("all");
@@ -139,9 +148,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [jobOpenError, setJobOpenError] = useState<string | null>(null);
   const jobOpenRequest = useRef(0);
   const [priorityCompanyIds, setPriorityCompanyIds] = useState<number[]>([]);
-  const [knownSkillIds, setKnownSkillIds] = useState<number[]>([]);
   const [jobSkillIds, setJobSkillIds] = useState<Map<number, number[]>>(() => new Map());
-  const [jobMatchFilter, setJobMatchFilter] = useState<MatchFilter>("any");
   const [trackerMatchFilter, setTrackerMatchFilter] = useState<MatchFilter>("any");
   const feedFilters = useMemo<JobFeedFilters>(() => ({
     search, workMode, postedDate: jobPostedDate, location: jobLocation,
@@ -180,17 +187,21 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [feedKey, feedFilters, page, recommendationRefresh, jobLocation, profileLoading, profileError]);
 
-  const loadKnownSkills = useCallback(async () => {
-    try {
-      setKnownSkillIds(await fetchKnownSkillIds(userId));
-    } catch {
-      // Non-critical: scores stay "Pending" and the Skills tab surfaces load errors.
-    }
-  }, [userId]);
-
+  // Re-read after visiting Skills so manual edits and approved resume skills appear immediately.
+  // Cleanup prevents stale requests from overwriting a later load or another account's state.
   useEffect(() => {
-    void loadKnownSkills();
-  }, [loadKnownSkills]);
+    const controller = new AbortController();
+    setSkillMatchState("loading");
+    setKnownSkillIds(null);
+    fetchUserSkillIds(userId, controller.signal).then((ids) => {
+      if (controller.signal.aborted) return;
+      setKnownSkillIds(ids);
+      setSkillMatchState(ids.length ? "ready" : "empty");
+    }).catch(() => {
+      if (!controller.signal.aborted) setSkillMatchState("error");
+    });
+    return () => controller.abort();
+  }, [userId, tab, skillRefresh]);
 
   const loadPriorityCompanies = useCallback(async () => {
     try {
@@ -390,9 +401,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     setSearch("");
     setWorkMode("all");
     setJobPostedDate("any");
-    setJobLocation("any");
-    setJobLocationQuery("");
-    setJobMatchFilter("any");
+    setJobLocations([]);
+    setMinimumSkillMatch(0);
     setSelectedJobId(jobId);
     setJobOpenError(null);
     setTab("jobs");
@@ -580,28 +590,18 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                   {jobView === "for_you" && <p className="text-sm text-muted-foreground">Jobs with a skill-match score above 0%, highest first. Scores measure coverage of the job&apos;s tagged skills, not an AI fit score.</p>}
                   <div className="flex flex-wrap gap-2 pt-2">
                     {WORK_MODE_FILTERS.map((filter) => (
-                      <Button
-                        key={filter.value}
-                        size="sm"
-                        variant={workMode === filter.value ? "default" : "outline"}
-                        aria-pressed={workMode === filter.value}
-                        onClick={() => { resetJobSelection(); setWorkMode(filter.value); }}
-                      >
+                      <Button key={filter.value} size="sm" variant={workMode === filter.value ? "default" : "outline"}
+                        aria-pressed={workMode === filter.value} onClick={() => { resetJobSelection(); setWorkMode(filter.value); }}>
                         {filter.label}
                       </Button>
                     ))}
                   </div>
-                  <div className="flex flex-wrap items-end gap-3 pt-2">
-                    <label className="grid gap-1 text-xs font-medium">
-                      Date posted
-                      <select aria-label="Filter jobs by date posted" className="h-10 rounded-md border bg-card px-3 text-sm" value={jobPostedDate} onChange={(event) => { resetJobSelection(); setJobPostedDate(event.target.value as PostedDateFilter); }}>
-                        {POSTED_DATE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
-                    </label>
-                    <LocationControls filter={jobLocation} onFilter={(filter) => { resetJobSelection(); setJobLocation(filter); }} query={jobLocationQuery} onQuery={(query) => { resetJobSelection(); setJobLocationQuery(query); }} preferred={profile?.preferred_location ?? null} />
-                    <MatchScoreFilter label="Filter jobs by match score" value={jobMatchFilter} onChange={(filter) => { resetJobSelection(); setJobMatchFilter(filter); }} />
-                    <Button size="sm" variant="ghost" onClick={() => { resetJobSelection(); setSearch(""); setWorkMode("all"); setJobPostedDate("any"); setJobLocation("any"); setJobLocationQuery(""); setJobMatchFilter("any"); }}>Clear filters</Button>
-                  </div>
+                  <JobsFilters search={search} onClearSearch={() => { resetJobSelection(); setSearch(""); }}
+                    workMode={workMode} onClearWorkMode={() => { resetJobSelection(); setWorkMode("all"); }}
+                    postedDate={jobPostedDate} onPostedDate={(value) => { resetJobSelection(); setJobPostedDate(value); }}
+                    minimumMatch={minimumSkillMatch} onMinimumMatch={(value) => { resetJobSelection(); setMinimumSkillMatch(value); }}
+                    locations={jobLocations} onLocations={(value) => { resetJobSelection(); setJobLocations(value); }}
+                    onClear={() => { resetJobSelection(); setSearch(""); setWorkMode("all"); setJobPostedDate("any"); setJobLocations([]); setMinimumSkillMatch(0); }} />
                 </CardHeader>
                 <CardContent key={`${feedKey}:${page}`} className="grid max-h-[70vh] gap-3 overflow-y-auto">
                   {viewLoading && <p role="status" className="text-sm text-muted-foreground">Loading jobs…</p>}
@@ -614,7 +614,10 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                   {!viewLoading && filteredJobs.map((job) => (
                     <JobRow
                       compact
+                      busy={busyJobId === job.id}
                       job={job}
+                      skillMatch={getJobSkillMatch(job, knownSkillIds)}
+                      skillState={skillMatchState}
                       key={job.id}
                       match={matchFor(job.id)}
                       selected={selectedJob?.id === job.id}
@@ -632,9 +635,14 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
               {openingJob || jobOpenError ? <Card><CardContent className="p-5"><p role={jobOpenError ? "alert" : "status"} className="text-sm">{jobOpenError ?? "Loading job details…"}</p></CardContent></Card> : selectedJob && !viewLoading ? (
                 <JobDetail
+                  key={selectedJob.id}
+                  busy={busyJobId === selectedJob.id}
                   isPriorityCompany={priorityCompanyIds.includes(selectedJob.company_id)}
                   job={selectedJob}
-                  match={matchFor(selectedJob.id)}
+                  skillMatch={getJobSkillMatch(selectedJob, knownSkillIds)}
+                  skillState={skillMatchState}
+                  onEditSkills={() => setTab("skills")}
+                  onRetrySkills={() => setSkillRefresh((n) => n + 1)}
                   onPriorityCompanyToggled={(companyId, priority) => setPriorityCompanyIds((ids) =>
                     priority ? [...new Set([...ids, companyId])] : ids.filter((id) => id !== companyId))}
                   status={statusByJob.get(selectedJob.id)}
@@ -673,7 +681,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                 <Button variant="outline" onClick={() => setTab("profile")}>Open resume library</Button>
               </div>
               <SkillDevelopment userId={userId} jobs={jobs} jobsLoading={loading}
-                resumeResult={resumeResult} onResumeResult={setResumeResult} onProfileDraft={fillProfileFromResume} onSkillsChanged={() => void loadKnownSkills()} />
+                resumeResult={resumeResult} onResumeResult={setResumeResult} onProfileDraft={fillProfileFromResume} onSkillsChanged={() => setSkillRefresh((n) => n + 1)} />
             </TabsContent>
 
             {/* ---------------- Personalization ---------------- */}
@@ -724,62 +732,44 @@ function MatchScoreBadge({ match }: { match: JobMatch | null }) {
   );
 }
 
-function JobRow({
-  job,
-  match,
-  status,
-  compact = false,
-  selected = false,
-  onOpen,
-  onSave,
+function JobRow({ job, match = null, skillMatch, skillState = "loading", status, compact = false,
+  selected = false, busy = false, onOpen, onSave,
 }: {
-  job: Job;
-  match: JobMatch | null;
-  status?: ApplicationStatus;
-  compact?: boolean;
-  selected?: boolean;
-  onOpen: () => void;
-  onSave: () => void;
+  job: Job; match?: JobMatch | null; skillMatch?: JobSkillMatch; skillState?: SkillMatchState;
+  status?: ApplicationStatus; compact?: boolean; selected?: boolean; busy?: boolean;
+  onOpen: () => void; onSave: () => void;
 }) {
-  return (
-    <article
-      className={`grid gap-3 rounded-lg border bg-card p-4 transition-colors sm:grid-cols-[1fr_auto] sm:items-center ${
-        selected ? "border-blue-400 bg-blue-50/70 shadow-soft" : "hover:border-blue-200 hover:bg-blue-50/30"
-      }`}
-    >
-      <button className="min-w-0 text-left" type="button" onClick={onOpen}>
-        <MatchScoreBadge match={match} />
-        <h3 className="mt-2 truncate text-sm font-semibold hover:underline">{job.title}</h3>
-        <p className="mt-1 truncate text-sm text-muted-foreground">
-          {job.companies?.name ?? "Unknown company"} · {job.location ?? "Location not listed"}
-        </p>
-        {!compact ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Badge>{WORK_MODE_LABELS[job.work_mode] ?? "Not listed"}</Badge>
-            <Badge>{formatPosted(job.posted_at)}</Badge>
-          </div>
-        ) : null}
-      </button>
-      <div className="flex items-center gap-2">
-        {status ? (
-          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-            <Check className="mr-1 h-3 w-3" aria-hidden="true" />
-            {statusLabel(status)}
-          </Badge>
-        ) : (
-          <Button size="sm" variant="outline" onClick={onSave}>
-            <Bookmark className="h-3.5 w-3.5" aria-hidden="true" />
-            Save
-          </Button>
-        )}
+  return <article className={`min-w-0 rounded-xl border p-4 transition-colors ${
+    selected ? "border-blue-400 bg-blue-50/70 shadow-sm" : "bg-card hover:border-blue-200 hover:bg-blue-50/30"
+  }`}>
+    <button className="block w-full min-w-0 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+      type="button" aria-pressed={compact ? selected : undefined} onClick={onOpen}>
+      {skillMatch ? <SkillMatchBadge match={skillMatch} state={skillState} /> : <MatchScoreBadge match={match} />}
+      <h3 title={job.title} className="mt-2 line-clamp-2 break-words text-sm font-semibold leading-5 hover:underline">{job.title}</h3>
+      <p className="mt-1 truncate text-sm text-muted-foreground">{job.companies?.name ?? "Unknown company"}</p>
+      <p title={job.location ?? undefined} className="mt-1 truncate text-xs text-muted-foreground">{summarizeJobLocation(job.location)}</p>
+    </button>
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <Badge className="text-xs">{WORK_MODE_LABELS[job.work_mode] ?? "Not listed"}</Badge>
+        <span>{formatPosted(job.posted_at)}</span>
       </div>
-    </article>
-  );
+      {status ? <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
+        <Check className="mr-1 h-3 w-3" aria-hidden="true" />{statusLabel(status)}
+      </Badge> : <Button size="sm" variant="outline" disabled={busy} aria-label={`Save ${job.title}`} onClick={onSave}>
+        <Bookmark className="h-3.5 w-3.5" aria-hidden="true" />{busy ? "Saving…" : "Save"}
+      </Button>}
+    </div>
+  </article>;
 }
 
 function JobDetail({
   job,
-  match,
+  busy,
+  skillMatch,
+  skillState,
+  onEditSkills,
+  onRetrySkills,
   status,
   onTrack,
   userId,
@@ -788,34 +778,30 @@ function JobDetail({
   resumeSelection,
 }: {
   job: Job;
-  match: JobMatch | null;
+  skillMatch: JobSkillMatch;
+  skillState: SkillMatchState;
+  onEditSkills: () => void;
+  onRetrySkills: () => void;
   status?: ApplicationStatus;
   onTrack: (status: ApplicationStatus) => void;
   userId: string;
   isPriorityCompany: boolean;
   onPriorityCompanyToggled: (companyId: number, priority: boolean) => void;
   resumeSelection?: React.ReactNode;
+  busy: boolean;
 }) {
   return (
     <Card className="content-start">
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <MatchScoreBadge match={match} />
+            <SkillMatchBadge match={skillMatch} state={skillState} />
             <CardTitle className="mt-2 text-xl">{job.title}</CardTitle>
             <CardDescription className="mt-1">
               {job.companies?.name ?? "Unknown company"} · {job.location ?? "Location not listed"} ·{" "}
               {formatPosted(job.posted_at)}
             </CardDescription>
-            <div className="mt-2">
-              <PriorityCompanyButton
-                companyId={job.company_id}
-                companyName={job.companies?.name ?? "this company"}
-                isActive={isPriorityCompany}
-                onToggled={onPriorityCompanyToggled}
-                userId={userId}
-              />
-            </div>
+
           </div>
           <Badge>{WORK_MODE_LABELS[job.work_mode] ?? "Not listed"}</Badge>
         </div>
@@ -831,28 +817,27 @@ function JobDetail({
             <ExternalLink className="h-4 w-4" aria-hidden="true" />
             Open posting
           </a>
+          <Button variant="outline" disabled={busy || !!status} onClick={() => onTrack("saved")}>
+            {status ? <Check className="h-4 w-4" aria-hidden="true" /> : <Bookmark className="h-4 w-4" aria-hidden="true" />}
+            {busy ? "Saving…" : status ? "In tracker" : "Save job"}
+          </Button>
+          <PriorityCompanyButton key={job.company_id} companyId={job.company_id} companyName={job.companies?.name ?? "this company"}
+            isActive={isPriorityCompany} onToggled={onPriorityCompanyToggled} userId={userId} showCompanyLabel />
         </div>
-        <section aria-label="Application status" className="rounded-md border p-3">
-          <h2 className="mb-2 text-sm font-semibold">Application status</h2>
-          <div className="flex flex-wrap gap-2">
-            {TRACKER_COLUMNS.map((column) => (
-              <Button
-                aria-pressed={status ? normalizeStatus(status) === column.status : false}
-                key={column.status}
-                size="sm"
-                variant={status && normalizeStatus(status) === column.status ? "default" : "outline"}
-                onClick={() => onTrack(column.status)}
-              >
-                {column.label}
-              </Button>
-            ))}
-          </div>
-          {!status ? <p className="mt-2 text-xs text-muted-foreground">Choose a status to start tracking this job.</p> : null}
+        <JobSkillBreakdown match={skillMatch} state={skillState} onEditSkills={onEditSkills} onRetry={onRetrySkills} />
+        <section aria-label="Application status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+          <div><label htmlFor={`job-status-${job.id}`} className="text-sm font-semibold">Application status</label>
+            <p className="mt-1 text-xs text-muted-foreground">{status ? "Updates are saved to your tracker." : "Choose a status to start tracking."}</p></div>
+          <select id={`job-status-${job.id}`} value={status ? normalizeStatus(status) : ""} disabled={busy}
+            className="h-10 rounded-md border bg-card px-3 text-sm" onChange={(event) => onTrack(event.target.value as ApplicationStatus)}>
+            <option value="" disabled>Not tracked</option>
+            {TRACKER_COLUMNS.map((column) => <option key={column.status} value={column.status}>{column.label}</option>)}
+          </select>
         </section>
         {resumeSelection && <section className="rounded-md border p-3">{resumeSelection}</section>}
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Job description</h2>
-          <p className="max-h-[55vh] overflow-y-auto whitespace-pre-line text-sm leading-6 text-muted-foreground">
+          <p className="whitespace-pre-line break-words text-sm leading-6 text-muted-foreground">
             {job.description || "No description was provided. Open the posting to read more."}
           </p>
         </section>

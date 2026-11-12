@@ -14,12 +14,14 @@ export function PriorityCompanyButton({
   companyName,
   isActive,
   onToggled,
+  showCompanyLabel = false,
 }: {
   userId: string;
   companyId: number;
   companyName: string;
   isActive: boolean;
   onToggled: (companyId: number, active: boolean) => void;
+  showCompanyLabel?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +53,13 @@ export function PriorityCompanyButton({
         aria-label={`${label} ${companyName}`}
         aria-pressed={isActive}
         disabled={busy}
-        size="sm"
+        size={showCompanyLabel ? "default" : "sm"}
         variant={isActive ? "default" : "outline"}
         className={isActive ? "bg-amber-500 text-white hover:bg-amber-500/90" : undefined}
         onClick={toggle}
       >
         <Star className="h-3.5 w-3.5" aria-hidden="true" fill={isActive ? "currentColor" : "none"} />
-        {label}
+        {showCompanyLabel ? (isActive ? "Company prioritized" : "Prioritize company") : label}
       </Button>
       {error ? (
         <div className="fixed bottom-4 right-4 z-50 flex max-w-sm items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 shadow-lg">
