@@ -1,9 +1,9 @@
-"""MVP pipeline: collect CS jobs from MANY companies on Greenhouse -> Supabase.
+"""MVP pipeline: collect CS jobs from Greenhouse, Lever and Ashby -> Supabase.
 
 Run (from backend/worker, with the virtual environment turned on):
     python pipeline.py
 
-What it does, for every Greenhouse company in the `companies` table:
+What it does, for every supported company in the `companies` table:
   1. Collect   - download the company's job list (with descriptions)
   2. Clean up  - keep U.S., early-career-friendly CS roles; reshape to our columns
   3. Save      - add new jobs, refresh ones we already have (no duplicates)
@@ -28,7 +28,7 @@ from notifier import notify_new_jobs, notify_target_role_matches
 # Settings
 # ---------------------------------------------------------------------------
 
-# Companies to add to the `companies` table if they aren't there yet.
+# Greenhouse companies to add to the `companies` table if they aren't there yet.
 # Format: "Display name": "greenhouse slug" (from job-boards.greenhouse.io/<slug>).
 # A company that has moved off Greenhouse is skipped with a warning, so it's
 # safe to leave a few that don't work. Add more any time.
@@ -163,7 +163,7 @@ def guess_work_mode(title: str, location: str) -> str:
 
 
 def html_to_text(content: str) -> str:
-    """Greenhouse sends descriptions as escaped HTML. Turn them into plain text."""
+    """Turn HTML or escaped HTML descriptions into plain text."""
     if not content:
         return ""
     text = html.unescape(content)  # "&lt;p&gt;" -> "<p>"
@@ -182,13 +182,13 @@ def make_fingerprint(company_id: int, title: str, location: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def clean_up(raw_jobs: list[dict], company_id: int, now: datetime) -> list[dict]:
-    """Reshape Greenhouse jobs to match our `jobs` table and drop ones we don't want."""
+def clean_up(raw_jobs: list[dict], company_id: int, now: datetime, source: str = "greenhouse") -> list[dict]:
+    """Reshape normalized ATS jobs to match our `jobs` table and drop unwanted roles."""
     rows = {}
     for job in raw_jobs:
         title = (job.get("title") or "").strip()
         location = ((job.get("location") or {}).get("name") or "Unknown").strip()
-        if not title or not is_cs_role(title) or not is_us_location(location):
+        if not title or not job.get("absolute_url") or not is_cs_role(title) or not is_us_location(location):
             continue
         fingerprint = make_fingerprint(company_id, title, location)
         if fingerprint in rows:  # same job listed twice in one download: keep the first
@@ -202,7 +202,7 @@ def clean_up(raw_jobs: list[dict], company_id: int, now: datetime) -> list[dict]
             "posted_at": posted[:10],
             "description": html_to_text(job.get("content", "")),
             "work_mode": guess_work_mode(title, location),
-            "source": "greenhouse",
+            "source": source,
             "dedupe_hash": fingerprint,
             "is_open": True,
             "last_seen_at": now.isoformat(),
@@ -219,7 +219,7 @@ def seed_companies(supabase) -> None:
         {"name": name, "ats_type": "greenhouse", "ats_slug": slug}
         for name, slug in STARTER_COMPANIES.items()
     ]
-    supabase.table("companies").upsert(rows, on_conflict="name").execute()
+    supabase.table("companies").upsert(rows, on_conflict="name", ignore_duplicates=True).execute()
 
 
 def guess_logo_url(slug: str) -> str:
@@ -230,12 +230,12 @@ def guess_logo_url(slug: str) -> str:
 
 
 def backfill_company_logos(supabase) -> int:
-    """Any Greenhouse company without a stored logo yet, not just the starter
+    """Any ATS company without a stored logo yet, not just the starter
     list, so companies added later (by the team or a future admin UI) also
     get one without this file needing a per-company update."""
     missing = (
         supabase.table("companies").select("id, ats_slug")
-        .eq("ats_type", "greenhouse").is_("logo_url", "null").execute().data
+        .is_("logo_url", "null").execute().data
     )
     updates = [{"id": row["id"], "logo_url": guess_logo_url(row["ats_slug"])} for row in missing if row.get("ats_slug")]
     for row in updates:
@@ -245,11 +245,80 @@ def backfill_company_logos(supabase) -> int:
     return len(updates)
 
 
-def collect(slug: str) -> list[dict]:
+def collect_greenhouse(slug: str) -> list[dict]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
     response = requests.get(url, timeout=30)
     response.raise_for_status()
-    return response.json().get("jobs", [])
+    payload = response.json()
+    jobs = payload.get("jobs") if isinstance(payload, dict) else None
+    if not isinstance(jobs, list) or not all(isinstance(job, dict) for job in jobs):
+        raise ValueError(f"Unexpected Greenhouse response for board {slug!r}")
+    return jobs
+
+
+def collect_lever(slug: str) -> list[dict]:
+    url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    postings = response.json()
+    if not isinstance(postings, list) or not all(isinstance(posting, dict) for posting in postings):
+        raise ValueError(f"Unexpected Lever response for board {slug!r}")
+
+    jobs = []
+    for posting in postings:
+        categories = posting.get("categories") or {}
+        created_at = posting.get("createdAt")
+        if created_at is not None:
+            try:
+                posted_at = datetime.fromtimestamp(float(created_at) / 1000, timezone.utc).isoformat()
+            except (TypeError, ValueError, OverflowError, OSError) as error:
+                raise ValueError(f"Invalid Lever posting date on board {slug!r}") from error
+        else:
+            posted_at = None
+        jobs.append({
+            "title": posting.get("text"),
+            "location": {"name": categories.get("location") or "Unknown"},
+            "absolute_url": posting.get("hostedUrl") or posting.get("applyUrl"),
+            "first_published": posted_at,
+            "content": posting.get("description") or posting.get("descriptionPlain") or "",
+        })
+    return jobs
+
+
+def collect_ashby(slug: str) -> list[dict]:
+    url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    payload = response.json()
+    jobs = payload.get("jobs") if isinstance(payload, dict) else None
+    if not isinstance(jobs, list) or not all(isinstance(job, dict) for job in jobs):
+        raise ValueError(f"Unexpected Ashby response for board {slug!r}")
+
+    return [
+        {
+            "title": job.get("title"),
+            "location": {"name": job.get("location") or ("Remote" if job.get("isRemote") else "Unknown")},
+            "absolute_url": job.get("jobUrl") or job.get("applyUrl"),
+            "first_published": job.get("publishedAt"),
+            "content": job.get("descriptionHtml") or job.get("descriptionPlain") or "",
+        }
+        for job in jobs
+    ]
+
+
+COLLECTORS = {
+    "greenhouse": collect_greenhouse,
+    "lever": collect_lever,
+    "ashby": collect_ashby,
+}
+
+
+def collect(ats_type: str, slug: str) -> list[dict]:
+    """Download and normalize job postings from a supported applicant tracking system."""
+    collector = COLLECTORS.get(ats_type)
+    if collector is None:
+        raise ValueError(f"Unsupported ATS type: {ats_type}")
+    return collector(slug)
 
 
 def save(supabase, rows: list[dict], company_id: int) -> list[dict]:
@@ -308,8 +377,7 @@ def main():
 
     companies = (
         supabase.table("companies")
-        .select("id, name, ats_slug, logo_url")
-        .eq("ats_type", "greenhouse")
+        .select("id, name, ats_type, ats_slug, logo_url")
         .order("name")
         .execute()
         .data
@@ -320,15 +388,15 @@ def main():
     all_new_jobs = []
     all_closing_soon_jobs = []
     for company in companies:
-        name, slug = company["name"], company["ats_slug"]
+        name, ats_type, slug = company["name"], company["ats_type"], company["ats_slug"]
         try:
-            raw_jobs = collect(slug)
-        except requests.RequestException as error:
-            print(f"  ! {name}: skipped, couldn't download ({error})")
+            raw_jobs = collect(ats_type, slug)
+        except (requests.RequestException, ValueError) as error:
+            print(f"  ! {name}: skipped, couldn't collect from {ats_type} ({error})")
             totals["failed"] += 1
             continue
 
-        rows = clean_up(raw_jobs, company["id"], now)
+        rows = clean_up(raw_jobs, company["id"], now, source=ats_type)
         new_rows = save(supabase, rows, company["id"])
         closing_soon_jobs = find_closing_soon_jobs(supabase, company["id"], now)
         closed_count = close_old_jobs(supabase, company["id"], now)

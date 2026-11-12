@@ -107,7 +107,7 @@ export function ProfileForm({ userId, onSaved, resumeDraft }: { userId: string; 
       <Field label="Target roles" error={errors.roles?.message}>
         <Input aria-describedby="target-roles-help" placeholder="Software engineering, frontend, data" {...register("roles")} />
       </Field>
-      <p id="target-roles-help" className="text-xs text-muted-foreground">Separate roles with commas. Saved roles personalize your For you jobs.</p>
+      <p id="target-roles-help" className="text-xs text-muted-foreground">Separate roles with commas. Saved roles are used for role alerts; For you jobs use your skill-match scores.</p>
       <div className="flex items-center gap-3">
         <Button disabled={isSubmitting} type="submit">
           <Save className="h-4 w-4" aria-hidden="true" />

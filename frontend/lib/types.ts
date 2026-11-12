@@ -20,8 +20,7 @@ export type Job = {
   description: string | null;
   work_mode: WorkMode;
   companies: { name: string } | null;
-  /** Recorded pipeline skills; absence is unknown, never a zero match. */
-  job_skills?: { skill_id: number; skills: Skill | null }[];
+  match_score?: { matched: number; total: number; percent: number } | null;
 };
 
 export type Application = {
