@@ -13,6 +13,8 @@ import type { Job } from "@/lib/types";
 
 type SkillData = Awaited<ReturnType<typeof fetchSkillDevelopment>>;
 
+const DEMAND_PREVIEW = 8;
+
 export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onResumeResult, onProfileDraft, onSkillsChanged }: {
   userId: string; jobs: Job[]; jobsLoading: boolean;
   resumeResult: ParsedResume | null; onResumeResult: (result: ParsedResume | null) => void;
@@ -26,6 +28,7 @@ export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onRe
   const [role, setRole] = useState("");
   const [appliedRole, setAppliedRole] = useState("");
   const [goalFilter, setGoalFilter] = useState("all");
+  const [showAllDemand, setShowAllDemand] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -127,10 +130,10 @@ export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onRe
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Skill demand</CardTitle>
+          <CardTitle>Skill demand and suggestions</CardTitle>
           <CardDescription>
             {data.overview.analyzed_jobs} of {data.overview.matching_jobs} matching jobs analyzed across {data.overview.total_open_jobs} open postings.
-            {appliedRole && ` Focus: “${appliedRole}”.`} Counts use saved skill mentions; a mention may not be a requirement.
+            {appliedRole && ` Focus: “${appliedRole}”.`} Open a skill you don’t have yet to see learning material and add a goal.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
@@ -139,44 +142,53 @@ export function SkillDevelopment({ userId, jobs, jobsLoading, resumeResult, onRe
               : !demand.length ? <p className="text-sm text-muted-foreground">No catalog skills were identified in the analyzed postings yet.</p>
                 : <>
                   {data.overview.analyzed_jobs < data.overview.matching_jobs && <p className="text-sm text-muted-foreground">Analysis is still in progress. Counts reflect the postings analyzed so far.</p>}
-                  {demand.map((row) => <div key={row.skill_id} className="grid gap-2">
-                    <div className="flex flex-wrap justify-between gap-2 text-sm">
-                      <span className="font-medium">{row.skill.name}{row.known ? " · In your skills" : ""}</span>
-                      <span>{row.count} jobs · {Math.round(row.count / Math.max(1, data.overview.analyzed_jobs) * 100)}% of analyzed jobs</span>
-                    </div>
-                    <div role="meter" aria-label={`${row.skill.name} demand`} aria-valuemin={0} aria-valuemax={data.overview.analyzed_jobs} aria-valuenow={row.count} className="h-2 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${row.count / Math.max(1, data.overview.analyzed_jobs) * 100}%` }} />
-                    </div>
-                    <p className="text-xs text-muted-foreground">Posted in the past 30 days: {row.recent_count} · Prior 30 days: {row.previous_count}</p>
-                  </div>)}
-                  <p className="text-xs text-muted-foreground">Date comparisons include currently open postings only, using their posted dates. They are not a historical measure of the whole job market.</p>
-                </>}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>Suggested skills and goals</CardTitle>
-          <CardDescription>Missing skills ranked by how many analyzed postings mention them. Choose a goal and follow the learning material at your own pace.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          {!data.overview.analyzed_jobs ? <p className="text-sm text-muted-foreground">Recommendations need analyzed postings.</p>
-            : !gaps.length ? <p className="text-sm text-muted-foreground">No gaps found among the analyzed skills. Try another title or check back when more jobs are analyzed.</p>
-              : gaps.map(({ skill, count, examples }) => <article key={skill.id} className="grid gap-3 rounded-lg border p-4">
-                <h3 className="font-semibold">{skill.name}</h3>
-                <p className="text-sm text-muted-foreground">Mentioned in {count} analyzed postings.</p>
-                <p className="text-sm">{goalFor(skill, data.resources)}</p>
-                <ResourceLinks skillId={skill.id} resources={data.resources} />
-                {!!examples.length && <details className="text-sm">
-                  <summary className="cursor-pointer font-medium">Example postings for {skill.name}</summary>
-                  <ul className="mt-2 grid gap-2 pl-4">
-                    {examples.filter((job) => externalUrl(job.url)).map((job) => <li key={job.id}>
-                      <a href={externalUrl(job.url)!} target="_blank" rel="noopener noreferrer" className="text-primary underline">{job.title} · {job.company_name} ↗</a>
-                    </li>)}
+                  {!gaps.length && <p className="text-sm text-muted-foreground">You already have every skill found in these postings. Try another title or check back when more jobs are analyzed.</p>}
+                  <ul className="grid gap-1">
+                    {(showAllDemand ? demand : demand.slice(0, DEMAND_PREVIEW)).map((row) => {
+                      const pct = row.count / Math.max(1, data.overview.analyzed_jobs) * 100;
+                      const hasGoal = data.goals.some((goal) => goal.skill_id === row.skill_id);
+                      const bar = <>
+                        <span className="truncate font-medium">{row.skill.name}{row.known && <span className="text-muted-foreground"> ✓</span>}</span>
+                        <div role="meter" aria-label={`${row.skill.name} demand`} aria-valuemin={0} aria-valuemax={data.overview.analyzed_jobs} aria-valuenow={row.count} className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="whitespace-nowrap text-xs text-muted-foreground">{row.count} · {Math.round(pct)}%</span>
+                      </>;
+                      const rowClass = "grid grid-cols-[minmax(0,9rem)_1fr_auto_1rem] items-center gap-3 rounded-md px-2 py-1.5 text-sm";
+                      const trend = `Posted in the past 30 days: ${row.recent_count} · Prior 30 days: ${row.previous_count}`;
+                      if (row.known) return <li key={row.skill_id} className={rowClass} title={trend}>{bar}<span /></li>;
+                      return <li key={row.skill_id}>
+                        <details className="group">
+                          <summary className={`${rowClass} cursor-pointer list-none hover:bg-muted [&::-webkit-details-marker]:hidden`} title={trend}>
+                            {bar}<span aria-hidden className="text-muted-foreground transition-transform group-open:rotate-90">›</span>
+                          </summary>
+                          <div className="mx-2 mb-2 mt-1 grid gap-3 rounded-lg border p-4">
+                            <p className="text-sm">{goalFor(row.skill, data.resources)}</p>
+                            <ResourceLinks skillId={row.skill_id} resources={data.resources} />
+                            {!!row.examples.length && <details className="text-sm">
+                              <summary className="cursor-pointer font-medium">Example postings for {row.skill.name}</summary>
+                              <ul className="mt-2 grid gap-2 pl-4">
+                                {row.examples.filter((job) => externalUrl(job.url)).map((job) => <li key={job.id}>
+                                  <a href={externalUrl(job.url)!} target="_blank" rel="noopener noreferrer" className="text-primary underline">{job.title} · {job.company_name} ↗</a>
+                                </li>)}
+                              </ul>
+                            </details>}
+                            <p className="text-xs text-muted-foreground">{trend}</p>
+                            <div><Button variant="outline" size="sm" disabled={busy || hasGoal} onClick={() => goalStatus(row.skill_id, "planned")}>
+                              {hasGoal ? "Goal saved" : "Add learning goal"}
+                            </Button></div>
+                          </div>
+                        </details>
+                      </li>;
+                    })}
                   </ul>
-                </details>}
-                <div><Button variant="outline" disabled={busy || data.goals.some((goal) => goal.skill_id === skill.id)} onClick={() => goalStatus(skill.id, "planned")}>
-                  {data.goals.some((goal) => goal.skill_id === skill.id) ? "Goal saved" : "Add learning goal"}
-                </Button></div>
-              </article>)}
+                  {demand.length > DEMAND_PREVIEW && <div>
+                    <Button variant="ghost" size="sm" onClick={() => setShowAllDemand((v) => !v)}>
+                      {showAllDemand ? "Show fewer" : `Show all ${demand.length} skills`}
+                    </Button>
+                  </div>}
+                  <p className="text-xs text-muted-foreground">✓ = in your skills. Counts use saved skill mentions; a mention may not be a requirement. 30-day trends cover currently open postings only.</p>
+                </>}
         </CardContent>
       </Card>
       <Card>
