@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { normalizeLocation } from "@/lib/job-filters";
 
-export function JobLocationFilter({ locations, onChange }: {
-  locations: string[]; onChange: (locations: string[]) => void;
+export function JobLocationFilter({ locations, onChange, showChips = true }: {
+  locations: string[]; onChange: (locations: string[]) => void; showChips?: boolean;
 }) {
   const id = useId();
   const [draft, setDraft] = useState("");
@@ -30,7 +30,7 @@ export function JobLocationFilter({ locations, onChange }: {
     <p id={`${id}-help`} className="text-xs font-normal text-muted-foreground">
       {locations.length ? "Matches any added location by name." : "Anywhere. Add one or more cities, states, or countries."}
     </p>
-    {locations.length > 0 && <ul aria-label="Selected locations" className="flex flex-wrap gap-2">
+    {showChips && locations.length > 0 && <ul aria-label="Selected locations" className="flex flex-wrap gap-2">
       {locations.map((location) => <li key={location} className="flex max-w-full items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-1 pl-3 pr-1 text-xs text-blue-800">
         <span className="break-words">{location}</span>
         <button type="button" className="shrink-0 rounded-full p-1.5 hover:bg-blue-100 focus-visible:outline focus-visible:outline-2"
