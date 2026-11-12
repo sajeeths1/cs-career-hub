@@ -6,6 +6,8 @@ import type { LearningGoal, LearningResource, Skill, SkillOverview } from "@/lib
 import type { Company, NotificationRow, NotificationSettings } from "@/lib/notifications";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications";
 import { collectRoleMatches, targetRolesQuery } from "@/lib/job-personalization";
+import { RESUME_FILENAME_HEADER } from "@/lib/resume";
+import { RESUME_LIBRARY_BUCKET, RESUME_LIBRARY_COLUMNS, uploadResumeVersion, type StoredResume, type JobResumeChoice } from "@/lib/resume-library";
 
 function db() {
   if (!supabase) throw new Error("Supabase is not configured. Check frontend/.env.local.");
@@ -116,6 +118,33 @@ export async function fetchSkillDevelopment(userId: string, titleFilter = "") {
   };
 }
 
+export async function fetchKnownSkillIds(userId: string): Promise<number[]> {
+  const { data, error } = await db().from("user_skills").select("skill_id").eq("user_id", userId);
+  if (error) throw error;
+  return ((data ?? []) as unknown as { skill_id: number }[]).map((row) => row.skill_id);
+}
+
+/** Stored skill tags per job, for the match score. Batched so the URL stays a safe length. */
+export async function fetchJobSkillIds(jobIds: readonly number[], signal?: AbortSignal): Promise<Map<number, number[]>> {
+  const byJob = new Map<number, number[]>();
+  const batchSize = 100;
+  const pageSize = 1000;
+  for (let start = 0; start < jobIds.length; start += batchSize) {
+    const batch = jobIds.slice(start, start + batchSize);
+    for (let offset = 0; ; offset += pageSize) {
+      let query = db().from("job_skills").select("job_id, skill_id").in("job_id", batch)
+        .order("job_id").order("skill_id").range(offset, offset + pageSize - 1);
+      if (signal) query = query.abortSignal(signal);
+      const { data, error } = await query;
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as { job_id: number; skill_id: number }[];
+      for (const row of rows) byJob.set(row.job_id, [...(byJob.get(row.job_id) ?? []), row.skill_id]);
+      if (rows.length < pageSize) break;
+    }
+  }
+  return byJob;
+}
+
 export async function setKnownSkill(userId: string, skillId: number, known: boolean) {
   const query = known
     ? db().from("user_skills").upsert({ user_id: userId, skill_id: skillId }, { onConflict: "user_id,skill_id", ignoreDuplicates: true })
@@ -124,14 +153,20 @@ export async function setKnownSkill(userId: string, skillId: number, known: bool
   if (error) throw error;
 }
 
-/** One atomic insert of explicitly approved resume skills; retain existing selections. */
-export async function addResumeSkills(userId: string, skillIds: number[]) {
-  if (!skillIds.length) return;
-  const { error } = await db().from("user_skills").upsert(
-    [...new Set(skillIds)].map(skill_id => ({ user_id: userId, skill_id })),
-    { onConflict: "user_id,skill_id", ignoreDuplicates: true },
-  );
+/** The RPC creates the shared option and selects it for auth.uid() in one transaction. */
+export async function addKnownSkill(name: string): Promise<Skill> {
+  const { data, error } = await db().rpc("add_known_skill", { p_name: name });
   if (error) throw error;
+  return data as Skill;
+}
+
+/** Whether the local worker has finished the student's latest upload. */
+export async function fetchResumeScanStatus(resumeId?: string): Promise<"none" | "scanning" | "done"> {
+  const { data, error } = resumeId
+    ? await db().rpc("resume_scan_status_for", { p_resume_id: resumeId })
+    : await db().rpc("resume_scan_status");
+  if (error) throw error;
+  return data as "none" | "scanning" | "done";
 }
 
 export async function parseResume(file: File, signal: AbortSignal) {
@@ -139,11 +174,63 @@ export async function parseResume(file: File, signal: AbortSignal) {
   if (error || !data.session) throw new Error("Sign in before parsing a resume.");
   const response = await fetch("/api/resume", {
     method: "POST", body: file, signal,
-    headers: { Authorization: `Bearer ${data.session.access_token}`, "Content-Type": "application/octet-stream" },
+    headers: {
+      Authorization: `Bearer ${data.session.access_token}`,
+      "Content-Type": "application/octet-stream",
+      [RESUME_FILENAME_HEADER]: encodeURIComponent(file.name),
+    },
   });
   const result = await response.json().catch(() => null);
   if (!response.ok || !result) throw new Error(result?.error ?? "Could not parse your resume. Please retry.");
   return result as import("./resume").ParsedResume;
+}
+
+export async function fetchResumeLibrary(userId: string) {
+  const [resumes, choices] = await Promise.all([
+    db().from("resumes").select(RESUME_LIBRARY_COLUMNS).eq("user_id", userId).order("uploaded_at", { ascending: false }),
+    db().from("application_resumes").select("job_id, resume_id").eq("user_id", userId),
+  ]);
+  if (resumes.error) throw resumes.error;
+  if (choices.error) throw choices.error;
+  return { resumes: (resumes.data ?? []) as StoredResume[], choices: (choices.data ?? []) as JobResumeChoice[] };
+}
+
+export async function uploadLibraryResume(userId: string, file: File) { return uploadResumeVersion(db(), userId, file); }
+
+export async function renameLibraryResume(id: string, name: string) {
+  const cleaned = name.trim();
+  if (!cleaned || cleaned.length > 150) throw new Error("Use a resume name of 1–150 characters.");
+  const { error } = await db().from("resumes").update({ name: cleaned }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setDefaultResume(id: string) {
+  const { error } = await db().rpc("set_default_resume", { p_resume_id: id });
+  if (error) throw error;
+}
+
+export async function resumeFileUrl(resume: StoredResume, download = false) {
+  if (!resume.has_file) throw new Error("No file was retained for this resume.");
+  const { data, error } = await db().storage.from(RESUME_LIBRARY_BUCKET).createSignedUrl(resume.storage_path, 60,
+    download ? { download: resume.original_filename } : undefined);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+export async function removeLibraryResume(resume: StoredResume) {
+  if (resume.has_file) {
+    const { error } = await db().storage.from(RESUME_LIBRARY_BUCKET).remove([resume.storage_path]);
+    if (error) throw error;
+  }
+  const removed = await db().from("resumes").delete().eq("id", resume.id);
+  if (removed.error) throw removed.error;
+}
+
+export async function setJobResume(userId: string, jobId: number, resumeId: string | null) {
+  const result = resumeId
+    ? await db().from("application_resumes").upsert({ user_id: userId, job_id: jobId, resume_id: resumeId })
+    : await db().from("application_resumes").delete().eq("user_id", userId).eq("job_id", jobId);
+  if (result.error) throw result.error;
 }
 
 export async function saveLearningGoal(userId: string, skillId: number, status: LearningGoal["status"] | null) {

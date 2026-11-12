@@ -53,8 +53,27 @@ future non-keyword extractor is preserved. Only the backend uses the service-rol
 key. The future LLM worker should use the same atomic save contract, distinguish
 required/nice-to-have skills, and keep a bounded batch size.
 
-Run worker unit tests from the project root:
+## Resume skills (local Ollama)
+
+After migrations 011–013, with Ollama running and the model pulled, run from `backend/worker`:
 
 ```bash
-python3 -m unittest discover -s backend/worker/tests -v
+python resume_skills.py --watch               # keep running: scans website uploads as they arrive
+                                              # (npm run dev in frontend/ starts this for you)
+python resume_skills.py --limit 20            # or scan what's waiting once, then exit
+python resume_skills.py --limit 1 --dry-run   # print skills without saving
+python skills.py --limit 500                  # re-tag jobs if new skills were added
+```
+
+Website uploads only get skills while `--watch` is running. Anything uploaded while it
+is stopped waits and is scanned when it restarts. Set `OLLAMA_MODEL` to override the
+default model. Run this on your own machine, because GitHub-hosted runners have no
+Ollama. A failed resume is logged and retried later. A single run exits nonzero if
+any attempted resume failed.
+
+Run worker unit tests from the project root. They need the worker's packages, so use
+its virtual environment:
+
+```bash
+backend/worker/.venv/bin/python -m unittest discover -s backend/worker/tests -v
 ```

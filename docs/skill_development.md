@@ -12,6 +12,9 @@ If 000–004 are already applied, only run `005_skill_development_catalog.sql`.
 Existing migrations have not been edited. No hosted database is modified by a code
 checkout, build or test. Restart Next.js after changing environment variables.
 
+For user-created shared skills, also apply the subsequent
+`015_user_created_skills.sql`. This adds the authenticated `add_known_skill` RPC.
+
 With the existing backend environment and virtual environment, run:
 
 ```sh
@@ -51,8 +54,14 @@ use the horizontal navigation.
   its marker together. Invalid tags or changed/closed jobs roll back the whole save.
 
 The initial catalog covers Python, React, SQL, JavaScript, HTML, CSS, TypeScript,
-Git, Docker, AWS and Java. Add aliases/resources through a new migration or a
-trusted administrative workflow; students cannot alter the shared catalog.
+Git, Docker, AWS and Java. Users can search the My skills dropdown and choose
+**Add** for a missing skill. This selects it for their profile and persists a shared
+option for everyone on subsequent catalog loads. Removing a selection keeps the
+shared option. Names are limited to 100 characters, whitespace is normalized, and
+existing names (case-insensitively) or aliases are reused. The authenticated RPC
+creates and selects atomically using the caller's identity; direct catalog writes
+remain blocked. Add aliases/resources through a new migration or a trusted
+administrative workflow.
 Resources link to official language/platform documentation and tutorials, including
 [TypeScript](https://www.typescriptlang.org/docs/handbook/intro.html),
 [Pro Git](https://git-scm.com/book/en/v2) and
@@ -107,6 +116,7 @@ Against a **disposable** migrated Supabase database:
 ```sh
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/skill_development.sql
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/skill_development_catalog.sql
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/user_created_skills.sql
 ```
 
 Fixtures run inside transactions and roll back. Tests cover user isolation,

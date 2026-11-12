@@ -5,12 +5,14 @@ import { Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { addResumeSkills, parseResume } from "@/lib/data";
+import { fetchResumeScanStatus, parseResume } from "@/lib/data";
 import { MAX_RESUME_BYTES, type ParsedResume, type ResumeDraft } from "@/lib/resume";
 import { cn } from "@/lib/utils";
 
+const SCAN_POLL_MS = 3000;
+const SCAN_POLL_ATTEMPTS = 40; // Stop waiting after two minutes; the scan can still finish later.
+
 type ResumeUploadProps = {
-  userId: string;
   compact?: boolean;
   result: ParsedResume | null;
   onResult: (result: ParsedResume | null) => void;
@@ -18,21 +20,36 @@ type ResumeUploadProps = {
   onSkillsSaved?: () => void;
 };
 
-export function ResumeUpload({ userId, compact = false, result, onResult, onProfileDraft, onSkillsSaved }: ResumeUploadProps) {
+export function ResumeUpload({ compact = false, result, onResult, onProfileDraft, onSkillsSaved }: ResumeUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
+  const skillsSaved = useRef(onSkillsSaved);
   const [busy, setBusy] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [selected, setSelected] = useState<number[]>([]);
+  const [scan, setScan] = useState<"scanning" | "done" | "slow" | null>(null);
   const [draft, setDraft] = useState<ResumeDraft>({ full_name: "", major: "", school: "" });
 
   useEffect(() => () => request.current?.abort(), []);
+  useEffect(() => { skillsSaved.current = onSkillsSaved; }, [onSkillsSaved]);
   useEffect(() => {
-    setSelected([]);
-    setNotice(null);
     setDraft({ full_name: result?.details.full_name ?? "", major: result?.details.major ?? "", school: result?.details.school ?? "" });
+  }, [result]);
+
+  // The local worker scans the saved text, so wait for it and then refresh My skills.
+  useEffect(() => {
+    setScan(result?.scan === "queued" ? "scanning" : null);
+    if (result?.scan !== "queued") return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const check = async (attempt: number) => {
+      const status = await fetchResumeScanStatus(result.resume_id).catch(() => "scanning");
+      if (!active) return;
+      if (status === "done") { setScan("done"); skillsSaved.current?.(); return; }
+      if (attempt >= SCAN_POLL_ATTEMPTS) { setScan("slow"); return; }
+      timer = setTimeout(() => void check(attempt + 1), SCAN_POLL_MS);
+    };
+    timer = setTimeout(() => void check(1), SCAN_POLL_MS);
+    return () => { active = false; clearTimeout(timer); };
   }, [result]);
 
   async function upload(file?: File) {
@@ -60,29 +77,18 @@ export function ResumeUpload({ userId, compact = false, result, onResult, onProf
     }
   }
 
-  async function saveSkills() {
-    setSaving(true); setError(null); setNotice(null);
-    try {
-      await addResumeSkills(userId, selected);
-      setSelected([]);
-      onSkillsSaved?.();
-      setNotice("Selected skills added to My skills.");
-    } catch (err) { setError((err as Error).message); }
-    finally { setSaving(false); }
-  }
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>Add skills from your resume</CardTitle>
         <CardDescription>
-          We read your resume to suggest skills. Only the skills you confirm are saved; the file itself is not stored.
+          We scan your resume and add the skills it names to My skills automatically. You can remove any that don&apos;t fit.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <button
           className={cn("flex w-full items-center justify-between gap-4 rounded-lg border border-dashed border-blue-200 bg-blue-50/50 px-4 py-5 text-left transition-colors hover:bg-blue-50 disabled:opacity-50", compact && "py-4")}
-          type="button" disabled={busy || saving} onClick={() => inputRef.current?.click()}
+          type="button" disabled={busy} onClick={() => inputRef.current?.click()}
         >
           <Upload className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
           <span className="flex-1"><span className="block text-sm font-semibold">{busy ? "Reading resume…" : result ? "Choose another resume" : "Choose a resume"}</span>
@@ -92,30 +98,24 @@ export function ResumeUpload({ userId, compact = false, result, onResult, onProf
         <input ref={inputRef} aria-label="Choose resume" className="hidden" type="file" accept=".pdf,.docx,.png,.jpg,.jpeg" onChange={(event) => {
           void upload(event.target.files?.[0]); event.target.value = "";
         }} />
-        <p className="text-xs text-muted-foreground">Processed on our server. The file and full extracted text are not stored. Contact details and work history stay in this review; only profile fields and skills you approve can be saved.</p>
+        <p className="text-xs text-muted-foreground">Your PDF or DOCX file and its extracted text, including any contact details and work history, are stored privately so a model we run ourselves can scan them. For images, only the text is stored. They are kept until you upload another resume or delete your account. Profile fields are only saved if you approve them.</p>
         {busy && <p role="status" className="text-sm text-muted-foreground">Reading text and running OCR where needed. This may take up to 90 seconds.</p>}
-        {(busy || result) && <Button type="button" variant="ghost" disabled={saving} onClick={() => {
-          request.current?.abort(); setBusy(false); onResult(null); setError(null); setNotice(null);
-        }}><X className="h-4 w-4" aria-hidden="true" />{busy ? "Cancel parsing" : "Discard extracted details"}</Button>}
+        {(busy || result) && <Button type="button" variant="ghost" onClick={() => {
+          request.current?.abort(); setBusy(false); onResult(null); setError(null);
+        }}><X className="h-4 w-4" aria-hidden="true" />{busy ? "Cancel parsing" : "Hide extracted details"}</Button>}
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-        {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
+        {scan === "scanning" && <p role="status" className="text-sm text-muted-foreground">Scanning your resume for skills. You can keep using the site while this runs.</p>}
+        {scan === "done" && <p role="status" className="text-sm text-muted-foreground">Scan finished. Any skills we found are now in My skills. They may contain mistakes, so please check them.</p>}
+        {scan === "slow" && <p role="status" className="text-sm text-muted-foreground">The skill scan is taking longer than usual. Your skills will appear in My skills when it finishes.</p>}
         {result && <div className="space-y-4">
-          <p className="text-xs text-muted-foreground">{result.metadata.ocr_pages ? `OCR used on ${result.metadata.ocr_pages} page(s).` : "Read embedded document text."} Suggestions may contain mistakes; review them carefully.</p>
+          <p className="text-xs text-muted-foreground">{result.metadata.ocr_pages ? `OCR used on ${result.metadata.ocr_pages} page(s).` : "Read embedded document text."} Details below may contain mistakes; review them carefully.</p>
           {result.warnings.map(warning => <p role="status" className="text-sm text-amber-700" key={warning}>{warning}</p>)}
-          <fieldset disabled={saving} className="space-y-2">
-            <legend className="mb-2 text-sm font-semibold">Suggested skills · {result.skills.length} found</legend>
-            <p className="text-xs text-muted-foreground">Check skills you actually have. A mention alone does not confirm proficiency.</p>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{result.skills.length ? result.skills.map(skill => <label className="flex items-center gap-2 text-sm" key={skill.id}>
-              <input type="checkbox" checked={selected.includes(skill.id)} onChange={event => setSelected(previous => event.target.checked ? [...previous, skill.id] : previous.filter(id => id !== skill.id))} />{skill.name}
-            </label>) : <p className="text-sm text-muted-foreground">No matches in the current skill catalog. You can add skills below.</p>}</div>
-            <Button type="button" disabled={saving || !selected.length} onClick={() => void saveSkills()}>{saving ? "Adding skills…" : `Add ${selected.length} ${selected.length === 1 ? "skill" : "skills"} to my profile`}</Button>
-          </fieldset>
           <details className="rounded-md border p-3 text-sm"><summary className="cursor-pointer font-medium">Use resume details in your profile</summary>
             <div className="mt-3 grid max-w-xl gap-3">{([['full_name', 'Name'], ['major', 'Major'], ['school', 'School']] as const).map(([field, label]) => <label key={field} className="grid gap-1 text-sm">{label}
               <Input value={draft[field]} maxLength={field === "school" ? 200 : 100} onChange={event => setDraft(previous => ({ ...previous, [field]: event.target.value }))} />
             </label>)}
               <Button type="button" className="w-fit" disabled={!Object.values(draft).some(value => value.trim())} onClick={() => onProfileDraft({ full_name: draft.full_name.trim(), major: draft.major.trim(), school: draft.school.trim() })}>Fill profile form</Button>
-              <p className="text-xs text-muted-foreground">Review and save the profile form in Personalization. Set your target roles and preferred location there.</p>
+              <p className="text-xs text-muted-foreground">Review and save the profile form in Profile. Set your target roles and preferred location there.</p>
             </div>
           </details>
           <details className="rounded-md border p-3 text-sm">

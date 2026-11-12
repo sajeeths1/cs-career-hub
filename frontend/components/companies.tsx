@@ -70,13 +70,15 @@ export function CompaniesTab({ userId, onPriorityToggled }: { userId: string; on
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
-              <div className="grid gap-2">
+              <p className="text-xs text-muted-foreground">{filteredCompanies.length} of {companies.length} companies · scroll to browse</p>
+              <ul aria-label="Companies to prioritize" tabIndex={0}
+                className="grid max-h-[19.5rem] content-start gap-2 overflow-y-auto overscroll-contain rounded-md pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 {filteredCompanies.map((company) => (
-                  <div className="flex flex-wrap items-center gap-2 rounded-md border p-2" key={company.id}>
+                  <li className="flex h-14 items-center gap-2 rounded-md border p-2" key={company.id}>
                     {company.logo_url ? (
                       <img alt="" className="h-6 w-6 shrink-0 rounded object-contain" src={company.logo_url} />
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{company.name}</span>
+                    <span title={company.name} className="min-w-0 flex-1 truncate text-sm font-medium">{company.name}</span>
                     <PriorityCompanyButton
                       companyId={company.id}
                       companyName={company.name}
@@ -84,9 +86,9 @@ export function CompaniesTab({ userId, onPriorityToggled }: { userId: string; on
                       onToggled={handlePriorityToggled}
                       userId={userId}
                     />
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
               {filteredCompanies.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No companies match this search.</p>
               ) : null}
