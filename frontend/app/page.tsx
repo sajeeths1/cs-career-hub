@@ -43,7 +43,9 @@ import {
   fetchPriorityCompanyIds,
   fetchJob,
   fetchJobSkillIds,
-  fetchJobsForTargetRoles,
+  fetchJobsForYou,
+  fetchJobsPage,
+  fetchKnownSkillIds,
   fetchOpenJobs,
   fetchProfile,
   fetchUserSkillIds,
@@ -51,8 +53,9 @@ import {
   setApplicationStatus,
 } from "@/lib/data";
 import { navItems } from "@/lib/mock-data";
-import { parseTargetRoles } from "@/lib/job-personalization";
-import { matchesPostedDate, matchesLocation, matchesAnyLocation, POSTED_DATE_FILTERS, type LocationFilter, type PostedDateFilter } from "@/lib/job-filters";
+import { JOB_PAGE_SIZE, type JobFeedFilters } from "@/lib/job-feed";
+import { formatMatch, MATCH_FILTERS, matchesScoreFilter, matchScore, type JobMatch, type MatchFilter } from "@/lib/job-match";
+import { matchesPostedDate, matchesLocation, POSTED_DATE_FILTERS, type LocationFilter, type PostedDateFilter } from "@/lib/job-filters";
 import { supabase } from "@/lib/supabase";
 import {
   TRACKER_COLUMNS,
@@ -153,6 +156,42 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [closingSoon, setClosingSoon] = useState<NotificationRow[]>([]);
   const [jobSkillIds, setJobSkillIds] = useState<Map<number, number[]>>(() => new Map());
   const [trackerMatchFilter, setTrackerMatchFilter] = useState<MatchFilter>("any");
+  const feedFilters = useMemo<JobFeedFilters>(() => ({
+    search, workMode, postedDate: jobPostedDate, location: jobLocation,
+    locationQuery: jobLocationQuery, preferredLocation: profile?.preferred_location,
+    matchFilter: jobMatchFilter,
+    forYou: jobView === "for_you",
+  }), [search, workMode, jobPostedDate, jobLocation, jobLocationQuery, profile?.preferred_location, jobMatchFilter, jobView]);
+  const skillsKey = JSON.stringify(knownSkillIds);
+  const feedKey = JSON.stringify([jobView, feedFilters, skillsKey]);
+  const [pagination, setPagination] = useState({ key: "", page: 0 });
+  const page = pagination.key === feedKey ? pagination.page : 0;
+  useEffect(() => {
+    setPagination({ key: feedKey, page: 0 });
+  }, [feedKey]);
+  const [feed, setFeed] = useState<{
+    key: string; page: number; jobs: Job[]; total: number; loading: boolean; error: string | null;
+  }>({ key: "", page: 0, jobs: [], total: 0, loading: true, error: null });
+
+  useEffect(() => {
+    if (jobLocation === "near_me" && (profileLoading || profileError)) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setFeed({ key: feedKey, page, jobs: [], total: 0, loading: true, error: null });
+      fetchJobsPage(feedFilters, page, controller.signal)
+        .then((result) => {
+          if (controller.signal.aborted) return;
+          if (page > 0 && result.jobs.length === 0) {
+            setPagination({ key: feedKey, page: Math.max(0, Math.ceil(result.total / JOB_PAGE_SIZE) - 1) });
+          }
+          setFeed({ ...result, key: feedKey, page, loading: false, error: null });
+        })
+        .catch((err: Error) => {
+          if (!controller.signal.aborted) setFeed({ key: feedKey, page, jobs: [], total: 0, loading: false, error: err.message });
+        });
+    }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [feedKey, feedFilters, page, recommendationRefresh, jobLocation, profileLoading, profileError]);
 
   // Re-read after visiting Skills so manual edits and approved resume skills appear immediately.
   // Cleanup prevents stale requests from overwriting a later load or another account's state.
@@ -212,28 +251,28 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   }, [loadProfile]);
 
   useEffect(() => {
-    if (profileLoading || profileError || !targetRoles.length) return;
     const controller = new AbortController();
-    setPersonalized({ key: rolesKey, jobs: [], loading: true, error: null });
-    fetchJobsForTargetRoles(targetRoles, controller.signal)
+    setPersonalized({ key: skillsKey, jobs: [], loading: true, error: null });
+    fetchJobsForYou(controller.signal)
       .then((rows) => {
-        if (!controller.signal.aborted) setPersonalized({ key: rolesKey, jobs: rows, loading: false, error: null });
+        if (!controller.signal.aborted) setPersonalized({ key: skillsKey, jobs: rows, loading: false, error: null });
       })
       .catch((err: Error) => {
-        if (!controller.signal.aborted) setPersonalized({ key: rolesKey, jobs: [], loading: false, error: err.message });
+        if (!controller.signal.aborted) setPersonalized({ key: skillsKey, jobs: [], loading: false, error: err.message });
       });
     return () => controller.abort();
-  }, [rolesKey, targetRoles, profileLoading, profileError, recommendationRefresh]);
+  }, [skillsKey, recommendationRefresh]);
 
-  const recommendedJobs = personalized.key === rolesKey && targetRoles.length && !profileError ? personalized.jobs : [];
-  const recommendationsLoading = profileLoading || (!profileError && !!targetRoles.length && (personalized.key !== rolesKey || personalized.loading));
-  const recommendationError = personalized.key === rolesKey ? personalized.error : null;
-  // Jobs uses saved skills; Dashboard retains its separate recommendation behavior.
-  const viewJobs = jobs;
-  const viewLoading = loading;
-  const dashboardPersonalized = !profileLoading && !profileError && targetRoles.length > 0;
-  const dashboardJobs = dashboardPersonalized ? recommendedJobs : jobs;
-  const dashboardLoading = loading || profileLoading || (dashboardPersonalized && recommendationsLoading);
+  const recommendedJobs = useMemo(() => personalized.key === skillsKey ? personalized.jobs : [], [personalized.key, personalized.jobs, skillsKey]);
+  const recommendationsLoading = personalized.key !== skillsKey || personalized.loading;
+  const recommendationError = personalized.key === skillsKey ? personalized.error : null;
+  const feedCurrent = feed.key === feedKey && feed.page === page;
+  const viewJobs = useMemo(() => feedCurrent ? feed.jobs : [], [feedCurrent, feed.jobs]);
+  const locationProfileError = jobLocation === "near_me" ? profileError : null;
+  const viewLoading = !locationProfileError && (!feedCurrent || feed.loading || (jobLocation === "near_me" && profileLoading));
+  const feedError = locationProfileError ?? (feedCurrent ? feed.error : null);
+  const dashboardJobs = recommendedJobs;
+  const dashboardLoading = loading || recommendationsLoading;
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -299,9 +338,10 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const scoredJobIds = useMemo(() => [...new Set([
     ...jobs.map((job) => job.id),
     ...personalized.jobs.map((job) => job.id),
+    ...viewJobs.map((job) => job.id),
     ...applications.map((app) => app.job_id),
     ...(directJob ? [directJob.id] : []),
-  ])].sort((a, b) => a - b).join(","), [jobs, personalized.jobs, applications, directJob]);
+  ])].sort((a, b) => a - b).join(","), [jobs, personalized.jobs, viewJobs, applications, directJob]);
 
   useEffect(() => {
     if (!scoredJobIds) return;
@@ -312,29 +352,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     return () => controller.abort();
   }, [scoredJobIds]);
 
+  const storedMatches = useMemo(() => new Map(
+    [...recommendedJobs, ...viewJobs].filter((job) => job.match_score !== undefined)
+      .map((job) => [job.id, job.match_score ?? null]),
+  ), [recommendedJobs, viewJobs]);
   const matchFor = useCallback(
-    (jobId: number) => matchScore(jobSkillIds.get(jobId) ?? [], knownSkillIds ?? []),
-    [jobSkillIds, knownSkillIds],
+    (jobId: number) => storedMatches.has(jobId) ? storedMatches.get(jobId) ?? null : matchScore(jobSkillIds.get(jobId) ?? [], knownSkillIds),
+    [storedMatches, jobSkillIds, knownSkillIds],
   );
 
-  const filteredJobs = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return viewJobs.filter((job) => {
-      if (workMode !== "all" && job.work_mode !== workMode) return false;
-      if (!matchesPostedDate(job.posted_at, jobPostedDate)) return false;
-      if (!matchesAnyLocation(job.location, jobLocations)) return false;
-      if (!meetsSkillMinimum(getJobSkillMatch(job, knownSkillIds), minimumSkillMatch)) return false;
-      if (!term) return true;
-      const haystack = `${job.title} ${job.companies?.name ?? ""} ${job.location ?? ""}`;
-      return haystack.toLowerCase().includes(term);
-    }).sort((a, b) => {
-      if (jobView !== "for_you" || skillMatchState !== "ready") return 0;
-      const left = getJobSkillMatch(a, knownSkillIds);
-      const right = getJobSkillMatch(b, knownSkillIds);
-      const ratio = (match: JobSkillMatch) => match.percent === null ? -1 : match.matched.length / match.total;
-      return ratio(right) - ratio(left);
-    });
-  }, [viewJobs, search, workMode, jobPostedDate, jobLocations, minimumSkillMatch, knownSkillIds, jobView, skillMatchState]);
+  const filteredJobs = viewJobs;
 
   const selectedJob =
     (directJob?.id === selectedJobId ? directJob : null) ??
@@ -404,7 +431,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     setSelectedJobId(jobId);
     setJobOpenError(null);
     setTab("jobs");
-    const known = [...jobs, ...recommendedJobs].find((job) => job.id === jobId);
+    const known = [...viewJobs, ...jobs, ...recommendedJobs].find((job) => job.id === jobId);
     setDirectJob(known ?? null);
     if (known) { setOpeningJob(false); return; }
     setOpeningJob(true);
@@ -492,7 +519,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             />
           </div>
           <Button aria-label="Refresh" size="icon" variant="outline" onClick={() => {
-            void loadAll(); void loadProfile(); void loadPriorityCompanies(); setRecommendationRefresh((n) => n + 1); setSkillRefresh((n) => n + 1);
+            void loadAll(); void loadProfile(); void loadPriorityCompanies(); void loadKnownSkills(); setRecommendationRefresh((n) => n + 1);
           }}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
@@ -644,24 +671,18 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
             {/* ---------------- Jobs ---------------- */}
             <TabsContent value="jobs" className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
-              <Card className="min-w-0 self-start xl:sticky xl:top-20">
-                <CardHeader className="gap-3 pb-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <CardTitle>Jobs</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <span aria-live="polite" className="text-sm text-muted-foreground">{viewLoading ? "Loading…" : `${filteredJobs.length} ${filteredJobs.length === 1 ? "job" : "jobs"}`}</span>
-                      <details className="group relative">
-                        <summary aria-label="About these job results" className="flex h-6 w-6 cursor-pointer list-none items-center justify-center rounded-full border text-xs text-muted-foreground focus-visible:outline focus-visible:outline-2 [&::-webkit-details-marker]:hidden">i</summary>
-                        <p className="absolute right-0 top-8 z-20 w-64 rounded-lg border bg-card p-3 text-xs leading-5 shadow-lg">Showing {filteredJobs.length} of {viewJobs.length} loaded postings. Search, filters and ranking cover up to the 300 newest open jobs.</p>
-                      </details>
-                    </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>{jobView === "for_you" ? "For you" : "All jobs"}</CardTitle>
+                  <CardDescription>
+                    {viewLoading ? "Loading…" : feedError ? "Jobs could not be loaded" : `${feed.total} matching jobs · page ${page + 1} of ${Math.max(1, Math.ceil(feed.total / JOB_PAGE_SIZE))}`}
+                  </CardDescription>
+                  <div role="group" aria-label="Job view" className="flex flex-wrap gap-2 pt-2">
+                    <Button size="sm" aria-pressed={jobView === "for_you"} variant={jobView === "for_you" ? "default" : "outline"} onClick={() => changeJobView("for_you")}>For you</Button>
+                    <Button size="sm" aria-pressed={jobView === "all"} variant={jobView === "all" ? "default" : "outline"} onClick={() => changeJobView("all")}>All jobs</Button>
                   </div>
-                  <div role="group" aria-label="Job view" className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-                    <Button size="sm" aria-pressed={jobView === "for_you"} variant={jobView === "for_you" ? "default" : "ghost"} onClick={() => changeJobView("for_you")}>For you</Button>
-                    <Button size="sm" aria-pressed={jobView === "all"} variant={jobView === "all" ? "default" : "ghost"} onClick={() => changeJobView("all")}>All jobs</Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{jobView === "for_you" && skillMatchState === "ready" ? "Highest skill match first" : "Newest first"}</p>
-                  <div role="group" aria-label="Work mode" className="flex flex-wrap gap-2">
+                  {jobView === "for_you" && <p className="text-sm text-muted-foreground">Jobs with a skill-match score above 0%, highest first. Scores measure coverage of the job&apos;s tagged skills, not an AI fit score.</p>}
+                  <div className="flex flex-wrap gap-2 pt-2">
                     {WORK_MODE_FILTERS.map((filter) => (
                       <Button key={filter.value} size="sm" variant={workMode === filter.value ? "default" : "outline"}
                         aria-pressed={workMode === filter.value} onClick={() => { resetJobSelection(); setWorkMode(filter.value); }}>
@@ -676,16 +697,14 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                     locations={jobLocations} onLocations={(value) => { resetJobSelection(); setJobLocations(value); }}
                     onClear={() => { resetJobSelection(); setSearch(""); setWorkMode("all"); setJobPostedDate("any"); setJobLocations([]); setMinimumSkillMatch(0); }} />
                 </CardHeader>
-                <CardContent className="grid max-h-[65vh] gap-3 overflow-y-auto px-4 pb-4">
+                <CardContent key={`${feedKey}:${page}`} className="grid max-h-[70vh] gap-3 overflow-y-auto">
                   {viewLoading && <p role="status" className="text-sm text-muted-foreground">Loading jobs…</p>}
-                  {skillMatchState === "loading" && <p role="status" className="text-sm text-muted-foreground">Loading skill matches…</p>}
-                  {skillMatchState === "error" && <div role="alert" className="grid gap-2 text-sm">
-                    <p>Could not load your skills. Use Any match to browse without a skill filter.</p><Button variant="outline" onClick={() => setSkillRefresh((n) => n + 1)}>Retry skills</Button>
+                  {!viewLoading && feedError && <div role="alert" className="grid gap-3 text-sm">
+                    <p>Could not load jobs: {feedError}</p><Button variant="outline" onClick={() => { if (locationProfileError) void loadProfile(); setRecommendationRefresh((n) => n + 1); }}>Retry jobs</Button>
                   </div>}
-                  {skillMatchState === "empty" && <p className="text-sm text-muted-foreground">
-                    <button type="button" className="font-medium text-primary underline" onClick={() => setTab("skills")}>Add your skills</button> to see matches. Use Any match to browse all jobs.
-                  </p>}
-                  {!viewLoading && skillMatchState !== "loading" && filteredJobs.length === 0 && <EmptyText text="No loaded jobs match these filters. Try another location or lower the skill minimum." />}
+                  {!viewLoading && !feedError && filteredJobs.length === 0 ? (
+                    <EmptyText text={jobView === "for_you" ? "No jobs have a positive skill-match score with these filters. Add skills in your profile, clear filters, or browse All jobs. Untagged jobs cannot be scored." : "No jobs match your search and filters."} />
+                  ) : null}
                   {!viewLoading && filteredJobs.map((job) => (
                     <JobRow
                       compact
@@ -701,6 +720,10 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                       onSave={() => track(job.id, "saved")}
                     />
                   ))}
+                  <div className="flex items-center justify-between gap-3 border-t pt-3">
+                    <Button variant="outline" disabled={viewLoading || page === 0} onClick={() => { resetJobSelection(); setPagination({ key: feedKey, page: page - 1 }); }}>Previous</Button>
+                    <Button variant="outline" disabled={viewLoading || !!feedError || (page + 1) * JOB_PAGE_SIZE >= feed.total} onClick={() => { resetJobSelection(); setPagination({ key: feedKey, page: page + 1 }); }}>Next</Button>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -759,7 +782,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             <TabsContent value="profile" className="grid gap-6">
               <div><h2 className="text-2xl font-semibold">Profile</h2><p className="text-sm text-muted-foreground">Your details, resume versions, job preferences and alerts.</p></div>
               <ResumeLibrary userId={userId} library={resumeLibrary} />
-              <Card><CardHeader><CardTitle>Your profile and job preferences</CardTitle><CardDescription>Save target roles and a preferred location to personalize jobs and the location filter.</CardDescription></CardHeader>
+              <Card><CardHeader><CardTitle>Your profile and job preferences</CardTitle><CardDescription>Add skills for For you recommendations. Save target roles for role alerts and a preferred location for the location filter.</CardDescription></CardHeader>
                 <CardContent><ProfileForm userId={userId} resumeDraft={resumeDraft} onSaved={(saved) => {
                   setResumeDraft(null);
                   profileRequest.current++;

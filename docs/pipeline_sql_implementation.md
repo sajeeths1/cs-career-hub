@@ -366,7 +366,7 @@ supabase.table("jobs").update({"is_open": False}) \
 
 Read it like a sentence: set `is_open` to false **where** the company matches, the job is open, and `last_seen_at` is **less than** (older than) two days ago. `.eq` means "equals" and `.lt` means "less than."
 
-**`main()`** ties it together: records the current time, seeds companies, loads every company with `ats_type = 'greenhouse'` (sorted by name), and runs the four steps for each. If one company fails to download, it prints a warning and moves on; one bad company never stops the run. It prints a line per company and a final summary.
+**`main()`** ties it together: records the current time, seeds the Greenhouse starter companies, loads every company (sorted by name), dispatches to its Greenhouse, Lever, or Ashby collector, and runs the four steps for each. If one company fails to download, it prints a warning and moves on; one bad company never stops the run. It prints a line per company and a final summary.
 
 ```python
 if __name__ == "__main__":
@@ -390,7 +390,7 @@ This last part means "when this file is run directly, start `main()`."
 ## Part 3: Common tasks
 
 **Add a company**
-Find its Greenhouse slug from a job link (`job-boards.greenhouse.io/<slug>/...`). Either add `"Name": "slug"` to `STARTER_COMPANIES`, or insert a row in **Table Editor → companies** with `ats_type = greenhouse` and `ats_slug = <slug>`. Run the pipeline.
+Find its board identifier from the public job-board URL, then insert a row in **Table Editor → companies** with the company name, `ats_type` (`greenhouse`, `lever`, or `ashby`), and `ats_slug`. Greenhouse companies may also be added to `STARTER_COMPANIES`. The current schema supports one ATS board per company row. Jobs with the same company ID, title, and location share a fingerprint and update in place; distinct title/location variants are treated as separate postings. Run the pipeline.
 
 **Change what counts as a CS job**
 Edit `CS_WORDS` or `EXCLUDE_WORDS`. To start fresh after a filter change, run `delete from jobs;` in the SQL Editor (this deletes only jobs, and also removes any tracker entries pointing to them), then run the pipeline again.
