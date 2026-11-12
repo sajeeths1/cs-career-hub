@@ -1,5 +1,5 @@
 -- Disposable database only, with the resume prerequisite migrations installed
--- but WITHOUT 011_resume_library.sql. This script applies that migration.
+-- but WITHOUT 016_resume_library.sql. This script applies that migration.
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-000000000060', 'existing-resume@example.invalid');
 insert into public.resumes (id, user_id, original_filename, storage_path, mime_type,
@@ -10,7 +10,7 @@ values ('10000000-0000-0000-0000-000000000060', '00000000-0000-0000-0000-0000000
 insert into storage.objects (bucket_id, name) values
   ('resumes', '00000000-0000-0000-0000-000000000060/existing.pdf');
 
-\ir ../migrations/011_resume_library.sql
+\ir ../migrations/016_resume_library.sql
 
 do $$ begin
   if not exists (select 1 from public.resumes

@@ -21,7 +21,7 @@ import { DeleteAccount } from "@/components/delete-account";
 import { PriorityCompanyButton } from "@/components/priority-company-button";
 import { JobsFilters } from "@/components/jobs-filters";
 import { summarizeJobLocation } from "@/lib/job-presentation";
-import { MATCH_FILTERS, formatMatch, matchScore, matchesScoreFilter, type JobMatch, type MatchFilter } from "@/lib/job-match";
+import { averagePercent, MATCH_FILTERS, formatMatch, matchScore, matchesScoreFilter, matchTone, type JobMatch, type MatchFilter } from "@/lib/job-match";
 import { JobSkillBreakdown, SkillMatchBadge, type SkillMatchState } from "@/components/job-skill-match";
 import { getJobSkillMatch, meetsSkillMinimum, type JobSkillMatch } from "@/lib/job-skill-match";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
@@ -38,6 +38,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   fetchApplications,
+  fetchCompanies,
+  fetchNotifications,
   fetchPriorityCompanyIds,
   fetchJob,
   fetchJobSkillIds,
@@ -60,7 +62,9 @@ import {
   WORK_MODE_LABELS,
   type Application,
   type ApplicationStatus,
+  type Company,
   type Job,
+  type NotificationRow,
   type Profile,
   type WorkMode,
 } from "@/lib/types";
@@ -148,6 +152,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [jobOpenError, setJobOpenError] = useState<string | null>(null);
   const jobOpenRequest = useRef(0);
   const [priorityCompanyIds, setPriorityCompanyIds] = useState<number[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [closingSoon, setClosingSoon] = useState<NotificationRow[]>([]);
   const [jobSkillIds, setJobSkillIds] = useState<Map<number, number[]>>(() => new Map());
   const [trackerMatchFilter, setTrackerMatchFilter] = useState<MatchFilter>("any");
   const feedFilters = useMemo<JobFeedFilters>(() => ({
@@ -214,6 +220,15 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   useEffect(() => {
     void loadPriorityCompanies();
   }, [loadPriorityCompanies]);
+
+  useEffect(() => {
+    fetchCompanies().then(setCompanies).catch(() => undefined);
+    fetchNotifications(30)
+      .then((rows) => setClosingSoon(rows.filter((row) => row.kind === "closing_soon")))
+      .catch(() => undefined);
+  }, [userId]);
+  const rolesKey = profile?.target_roles ?? "";
+  const targetRoles = useMemo(() => parseTargetRoles(rolesKey), [rolesKey]);
 
   const loadProfile = useCallback(async () => {
     const request = ++profileRequest.current;
@@ -353,7 +368,13 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     filteredJobs.find((job) => job.id === selectedJobId) ?? filteredJobs[0] ?? null;
 
   const unseenDashboardJobs = dashboardJobs.filter((job) => !statusByJob.has(job.id));
-  const priorityJobs = jobs.filter((job) => priorityCompanyIds.includes(job.company_id)).slice(0, 3);
+  const priorityCompanies = companies
+    .filter((company) => priorityCompanyIds.includes(company.id))
+    .map((company) => ({
+      ...company,
+      newRoles: jobs.filter((job) => job.company_id === company.id && matchesPostedDate(job.posted_at, "week")).length,
+    }))
+    .slice(0, 5);
 
   function visibleTrackerRows() {
     const term = trackerSearch.trim().toLowerCase();
@@ -376,11 +397,15 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     applications.filter((app) => normalizeStatus(app.status) === status).length;
 
   const metrics = [
-    { label: "Newest CS jobs", value: jobs.length, note: "50-job preview · browse all in Jobs" },
     { label: "Saved", value: countByStatus("saved"), note: "In your tracker" },
     { label: "Applied", value: countByStatus("applied"), note: "Waiting to hear back" },
     { label: "Interviewing", value: countByStatus("interviewing"), note: "Keep preparing" },
+    { label: "Offers", value: countByStatus("offer"), note: "Keep it up" },
   ];
+
+  // Skill match across the student's saved roles (tracker status "saved").
+  const savedApps = applications.filter((app) => normalizeStatus(app.status) === "saved");
+  const savedMatch = { count: savedApps.length, percent: averagePercent(savedApps.map((app) => matchFor(app.job_id))) };
 
   function resetJobSelection() {
     jobOpenRequest.current++;
@@ -527,49 +552,118 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             </TabsList>
 
             {/* ---------------- Dashboard ---------------- */}
-            <TabsContent value="dashboard" className="grid gap-6">
+            <TabsContent value="dashboard" className="grid gap-9">
               <div>
-                <h1 className="text-3xl font-semibold tracking-tight">Welcome{profile?.full_name ? `, ${profile.full_name.split(" ")[0]}` : ""}</h1>
-                <p className="mt-1 text-muted-foreground">Your jobs, applications, and next steps in one place.</p>
+                <h1 className="text-3xl font-semibold tracking-tight">Welcome back{profile?.full_name ? `, ${profile.full_name.split(" ")[0]}` : ""}</h1>
+                <p className="mt-1 text-muted-foreground">Your next steps, at a glance</p>
               </div>
-              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Overview">
+
+              <section className="grid grid-cols-2 gap-4 xl:grid-cols-4" aria-label="Your progress">
                 {metrics.map((metric, index) => (
-                  <Card className={`border-t-4 ${["border-t-sky-500", "border-t-teal-500", "border-t-indigo-500", "border-t-amber-500"][index]}`} key={metric.label}>
+                  <Card className={`border-t-4 ${PROGRESS_TONES[index]}`} key={metric.label}>
                     <CardContent className="p-5">
                       <p className="text-sm text-muted-foreground">{metric.label}</p>
                       <p className="mt-2 text-3xl font-semibold">{loading ? "–" : metric.value}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{metric.note}</p>
                     </CardContent>
                   </Card>
                 ))}
               </section>
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-                <Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-4">
+                  <CardTitle>New from your priority companies</CardTitle>
+                  <Button size="sm" variant="ghost" onClick={() => setTab("profile")}>Manage companies</Button>
+                </CardHeader>
+                <CardContent>
+                  {priorityCompanies.length ? (
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+                      {priorityCompanies.map((company) => (
+                        <button
+                          className="flex items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:border-cyan-200 hover:bg-cyan-50/40"
+                          key={company.id}
+                          type="button"
+                          onClick={() => { resetJobSelection(); setSearch(company.name); setTab("jobs"); }}
+                        >
+                          <CompanyLogo name={company.name} logoUrl={company.logo_url} />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold">{company.name}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {company.newRoles ? `${company.newRoles} new ${company.newRoles === 1 ? "role" : "roles"}` : "No new roles"}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No priority companies yet. <button className="text-primary underline" onClick={() => setTab("profile")}>Choose companies</button>.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="grid items-stretch gap-8 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+                <Card className="flex min-h-0 flex-col">
                   <CardHeader className="flex flex-row items-start justify-between gap-4">
-                    <div><CardTitle>Jobs for you</CardTitle>
-                      <CardDescription>Positive skill-match scores, highest first.</CardDescription></div>
-                    <Button size="sm" variant="outline" onClick={() => { changeJobView("for_you"); setTab("jobs"); }}>See matching jobs</Button>
+                    <div>
+                      <CardTitle>Jobs For You</CardTitle>
+                      <CardDescription>{dashboardPersonalized ? "Based on your target roles." : "Add target roles in your profile to personalize this list."}</CardDescription>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={() => { changeJobView(dashboardPersonalized ? "for_you" : "all"); setTab("jobs"); }}>See all jobs</Button>
                   </CardHeader>
-                  <CardContent className="grid gap-2">
+                  <CardContent className="flex min-h-0 flex-1 flex-col">
                     {dashboardLoading && <EmptyText text="Loading jobs…" />}
                     {!dashboardLoading && recommendationError && <p role="alert" className="text-sm text-red-600">Could not load personalized jobs. Open Jobs to retry.</p>}
-                    {!dashboardLoading && !recommendationError && unseenDashboardJobs.length === 0 && <EmptyText text="No new skill-matched jobs to show. Browse All jobs or add skills in your profile." />}
-                    {!dashboardLoading && unseenDashboardJobs.slice(0, 4).map((job) => (
-                      <JobRow key={job.id} job={job} match={matchFor(job.id)} onOpen={() => void openJob(job.id, "for_you")} onSave={() => void track(job.id, "saved")} />
-                    ))}
+                    {!dashboardLoading && !recommendationError && unseenDashboardJobs.length === 0 && <EmptyText text="No new jobs to show yet. Browse all jobs or update your target roles." />}
+                    {!dashboardLoading && unseenDashboardJobs.length > 0 && (
+                      <div className="flex h-[400px] flex-col gap-2.5 overflow-y-auto pr-1.5">
+                        {unseenDashboardJobs.slice(0, 10).map((job) => (
+                          <DashboardJobCard key={job.id} job={job} match={matchFor(job.id)} onOpen={() => void openJob(job.id, dashboardPersonalized ? "for_you" : "all")} />
+                        ))}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
-                <div className="grid content-start gap-6">
-                  <Card><CardHeader><CardTitle>From priority companies</CardTitle><CardDescription>Recent loaded postings from companies you prioritize.</CardDescription></CardHeader>
-                    <CardContent className="grid gap-3">
-                      {priorityJobs.length ? priorityJobs.map((job) => <button className="border-b pb-3 text-left last:border-0" key={job.id} onClick={() => void openJob(job.id)}>
-                        <span className="block text-sm font-semibold hover:underline">{job.title}</span>
-                        <span className="text-xs text-muted-foreground">{job.companies?.name} · {formatPosted(job.posted_at)}</span>
-                      </button>) : <p className="text-sm text-muted-foreground">No new postings from your priority companies. <button className="text-primary underline" onClick={() => setTab("profile")}>Choose companies</button>.</p>}
+
+                <div className="flex flex-col gap-8">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Your skill match</CardTitle>
+                      <CardDescription>{savedMatch.count ? `Average across your ${savedMatch.count} saved ${savedMatch.count === 1 ? "job" : "jobs"}.` : "Save jobs to see how your skills compare."}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-5">
+                      <div className="flex items-center gap-4">
+                        <span className="text-[32px] font-semibold leading-none text-cyan-600">{savedMatch.percent === null ? "–" : `${savedMatch.percent}%`}</span>
+                        <div
+                          aria-label="Average skill match across saved jobs"
+                          aria-valuemax={100}
+                          aria-valuemin={0}
+                          aria-valuenow={savedMatch.percent ?? 0}
+                          className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-200"
+                          role="progressbar"
+                        >
+                          <div className="h-full rounded-full bg-cyan-600" style={{ width: `${savedMatch.percent ?? 0}%` }} />
+                        </div>
+                      </div>
+                      <Button variant="outline" onClick={() => setTab("skills")}>See how to improve your match</Button>
                     </CardContent>
                   </Card>
-                  <Card><CardHeader><CardTitle>Skills to develop</CardTitle><CardDescription>See which skills appear in current job postings.</CardDescription></CardHeader>
-                    <CardContent><Button variant="outline" onClick={() => setTab("skills")}>Explore skill gaps</Button></CardContent>
+
+                  <Card className="flex flex-1 flex-col border-t-[3px] border-t-cyan-600">
+                    <CardHeader className="flex flex-row items-start justify-between gap-3">
+                      <div>
+                        <CardTitle>Closing Soon</CardTitle>
+                        <CardDescription>Saved roles with deadlines this month.</CardDescription>
+                      </div>
+                      <Badge className="shrink-0 border-amber-200 bg-amber-50 text-amber-800">{closingSoon.length} closing soon</Badge>
+                    </CardHeader>
+                    <CardContent className="flex flex-1 flex-col gap-3">
+                      <div className="h-0.5 rounded-full bg-border" />
+                      {closingSoon.length ? closingSoon.slice(0, 3).map((row) => (
+                        <button className="border-b pb-3 text-left last:border-0 last:pb-0" key={row.id} type="button" onClick={() => void openJob(row.job_id)}>
+                          <span className="block text-sm font-semibold hover:underline">{row.jobs?.title ?? "Untitled role"}</span>
+                          <span className="text-xs text-muted-foreground">{row.companies?.name ?? "Unknown company"}</span>
+                        </button>
+                      )) : <p className="text-sm text-muted-foreground">No closing-soon alerts right now.</p>}
+                    </CardContent>
                   </Card>
                 </div>
               </div>
@@ -720,6 +814,37 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
 const MATCH_EXPLANATION = "Share of the skills mentioned in this posting that are in My skills. Postings can mention optional skills, so treat this as a guide.";
 const MATCH_PENDING_EXPLANATION = "No score yet: this posting has no stored skills, or you have not added any skills.";
+
+const PROGRESS_TONES = ["border-t-sky-300", "border-t-sky-400", "border-t-sky-600", "border-t-sky-900"];
+
+function CompanyLogo({ name, logoUrl, size = 36 }: { name: string; logoUrl: string | null; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "?";
+  const box = { width: size, height: size, flex: `0 0 ${size}px` };
+  if (logoUrl && !failed) {
+    return <img alt="" className="rounded-md border bg-white object-contain p-1" src={logoUrl} style={box} onError={() => setFailed(true)} />;
+  }
+  return <div aria-hidden="true" className="grid place-items-center rounded-md bg-slate-100 text-xs font-bold text-slate-700" style={box}>{initials}</div>;
+}
+
+function DashboardJobCard({ job, match, onOpen }: { job: Job; match: JobMatch | null; onOpen: () => void }) {
+  const tone = match ? matchTone(match.percent) : null;
+  const toneClass = tone === "strong"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+    : tone === "fair"
+      ? "border-amber-200 bg-amber-50 text-amber-800"
+      : "border-slate-200 bg-slate-100 text-slate-600";
+  return (
+    <button className="flex h-[72px] shrink-0 items-center gap-3.5 rounded-lg border bg-card px-3.5 text-left transition-colors hover:border-cyan-200 hover:bg-cyan-50/40" type="button" onClick={onOpen}>
+      <CompanyLogo logoUrl={job.companies?.logo_url ?? null} name={job.companies?.name ?? "Unknown company"} size={44} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">{job.title}</span>
+        <span className="block truncate text-sm text-muted-foreground">{job.companies?.name ?? "Unknown company"} · {job.location ?? "Location not listed"}</span>
+      </span>
+      <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${toneClass}`}>{match ? `Skill match ${match.percent}%` : "Skill match pending"}</span>
+    </button>
+  );
+}
 
 function MatchScoreBadge({ match }: { match: JobMatch | null }) {
   return (

@@ -1,4 +1,4 @@
--- 008_resume_storage.sql
+-- 011_resume_storage.sql
 -- CS Career Hub: private resume storage and per-user metadata.
 -- Apply ONCE to the intended development Supabase project.
 -- This file uses the repo's existing numeric migration naming convention.

@@ -2,7 +2,7 @@
 
 Keep `python resume_skills.py --watch` running to scan website uploads as they arrive,
 or run `python resume_skills.py --limit 20` once. `--limit 1 --dry-run` reviews results
-without writing. Needs migrations 010-011 and a running Ollama with OLLAMA_MODEL pulled,
+without writing. Needs migrations 011-013 and a running Ollama with OLLAMA_MODEL pulled,
 so run it locally: GitHub-hosted runners have no Ollama.
 """
 import argparse

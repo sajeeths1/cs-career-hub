@@ -1,10 +1,9 @@
 # Profile and resume library
 
-Apply the revised `011_resume_library.sql` **after** the existing resume storage,
-text extraction, skill extraction and upload migrations (`010_resume_storage.sql`,
-`011_resume_text_extraction.sql`, `010_resume_skill_extraction.sql` and
-`011_resume_uploads.sql`). Several files share numeric prefixes, so do not infer
-this order from the number alone. Do not rerun older upload migrations afterward:
+Apply the revised `016_resume_library.sql` **after** the existing resume storage,
+text extraction, skill extraction and upload migrations (`011_resume_storage.sql`,
+`012_resume_text_extraction.sql`, `013_resume_skill_extraction.sql` and
+`014_resume_uploads.sql`). Do not rerun older upload migrations afterward:
 the library migration replaces their single-resume upload behavior.
 
 The migration extends the existing `resumes` table with `name`, `is_default` and
