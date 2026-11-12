@@ -1,5 +1,5 @@
 -- Store website uploads: the file in Storage and its text for the local skill worker.
--- Apply after 010. Only the Data owner should apply this to the shared Supabase project.
+-- Apply after 013_resume_skill_extraction.sql. Only the Data owner should apply this to the shared Supabase project.
 begin;
 
 -- The resumes bucket was created by hand in the shared project. This lets new

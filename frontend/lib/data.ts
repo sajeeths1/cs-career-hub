@@ -15,7 +15,7 @@ function db() {
 }
 
 const JOB_COLUMNS =
-  "id, company_id, title, location, url, posted_at, description, work_mode, companies(name), job_skills(skill_id, skills(id, name))";
+  "id, company_id, title, location, url, posted_at, description, work_mode, companies(name, logo_url), job_skills(skill_id, skills(id, name))";
 
 /** RLS and an explicit owner filter restrict this read to the current student. */
 export async function fetchUserSkillIds(userId: string, signal?: AbortSignal): Promise<number[]> {
@@ -65,7 +65,7 @@ export async function fetchJob(jobId: number): Promise<Job | null> {
 export async function fetchApplications(): Promise<Application[]> {
   const { data, error } = await db()
     .from("applications")
-    .select("id, job_id, status, updated_at, jobs(id, title, url, location, posted_at, work_mode, companies(name))")
+    .select("id, job_id, status, updated_at, jobs(id, title, url, location, posted_at, work_mode, companies(name, logo_url))")
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as unknown as Application[];

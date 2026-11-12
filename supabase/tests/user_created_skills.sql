@@ -1,4 +1,4 @@
--- Run as the database owner in a disposable database after migrations 000–010.
+-- Run as the database owner in a disposable database after migrations 000–015.
 begin;
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-000000000051', 'catalog-a@example.invalid'),

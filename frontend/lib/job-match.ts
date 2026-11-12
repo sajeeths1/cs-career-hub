@@ -26,3 +26,17 @@ export function matchesScoreFilter(match: JobMatch | null, filter: MatchFilter):
 export function formatMatch(match: JobMatch | null): string {
   return match ? `${match.percent}% (${match.matched}/${match.total})` : "Pending";
 }
+
+/** Mean percent across the postings that can be scored; null when none can. */
+export function averagePercent(matches: readonly (JobMatch | null)[]): number | null {
+  const scored = matches.filter((match): match is JobMatch => match !== null);
+  if (!scored.length) return null;
+  return Math.round(scored.reduce((sum, match) => sum + match.percent, 0) / scored.length);
+}
+
+/** Colour band for a score: strong 70+, fair 50-69, low below 50. */
+export function matchTone(percent: number): "strong" | "fair" | "low" {
+  if (percent >= 70) return "strong";
+  if (percent >= 50) return "fair";
+  return "low";
+}

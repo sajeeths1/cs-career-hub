@@ -55,7 +55,7 @@ required/nice-to-have skills, and keep a bounded batch size.
 
 ## Resume skills (local Ollama)
 
-After migrations 010–011, with Ollama running and the model pulled, run from `backend/worker`:
+After migrations 011–013, with Ollama running and the model pulled, run from `backend/worker`:
 
 ```bash
 python resume_skills.py --watch               # keep running: scans website uploads as they arrive

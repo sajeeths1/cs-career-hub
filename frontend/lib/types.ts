@@ -19,8 +19,9 @@ export type Job = {
   posted_at: string | null;
   description: string | null;
   work_mode: WorkMode;
-  companies: { name: string } | null;
-  match_score?: { matched: number; total: number; percent: number } | null;
+  companies: { name: string; logo_url?: string | null } | null;
+  /** Recorded pipeline skills; absence is unknown, never a zero match. */
+  job_skills?: { skill_id: number; skills: Skill | null }[];
 };
 
 export type Application = {

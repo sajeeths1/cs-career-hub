@@ -1,5 +1,5 @@
 -- Save skills extracted from resume text by the local worker (backend/worker/resume_skills.py).
--- Apply after 009. Only the Data owner should apply this to the shared Supabase project.
+-- Apply after 012_resume_text_extraction.sql. Only the Data owner should apply this to the shared Supabase project.
 begin;
 
 -- public.resumes was created by hand in the shared project. This definition lets new

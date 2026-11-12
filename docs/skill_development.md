@@ -12,8 +12,8 @@ If 000–004 are already applied, only run `005_skill_development_catalog.sql`.
 Existing migrations have not been edited. No hosted database is modified by a code
 checkout, build or test. Restart Next.js after changing environment variables.
 
-For user-created shared skills, also apply subsequent migrations through
-`010_user_created_skills.sql`. This adds the authenticated `add_known_skill` RPC.
+For user-created shared skills, also apply the subsequent
+`015_user_created_skills.sql`. This adds the authenticated `add_known_skill` RPC.
 
 With the existing backend environment and virtual environment, run:
 

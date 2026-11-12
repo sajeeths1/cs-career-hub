@@ -1,6 +1,6 @@
 -- Extend the existing resumes table and resumes Storage bucket for multiple versions.
--- Apply AFTER 010_resume_storage.sql, 010_resume_skill_extraction.sql,
--- 011_resume_text_extraction.sql and 011_resume_uploads.sql are installed.
+-- Apply AFTER 011_resume_storage.sql, 012_resume_text_extraction.sql,
+-- 013_resume_skill_extraction.sql and 014_resume_uploads.sql are installed.
 -- This replaces the unapplied library migration; no profile_resumes table is needed.
 begin;
 

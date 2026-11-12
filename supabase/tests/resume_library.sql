@@ -1,4 +1,4 @@
--- Disposable database only, after migration 011.
+-- Disposable database only, after migration 016.
 begin;
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-000000000061', 'library-a@example.invalid'),
