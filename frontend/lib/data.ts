@@ -15,7 +15,23 @@ function db() {
 }
 
 const JOB_COLUMNS =
-  "id, company_id, title, location, url, posted_at, description, work_mode, companies(name, logo_url)";
+  "id, company_id, title, location, url, posted_at, description, work_mode, companies(name, logo_url), job_skills(skill_id, skills(id, name))";
+
+/** RLS and an explicit owner filter restrict this read to the current student. */
+export async function fetchUserSkillIds(userId: string, signal?: AbortSignal): Promise<number[]> {
+  const ids: number[] = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    let query = db().from("user_skills").select("skill_id").eq("user_id", userId)
+      .order("skill_id").range(offset, offset + pageSize - 1);
+    if (signal) query = query.abortSignal(signal);
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data ?? []) as { skill_id: number }[];
+    ids.push(...rows.map((row) => row.skill_id));
+    if (rows.length < pageSize) return [...new Set(ids)];
+  }
+}
 
 /** Newest open jobs, with each company's name (follows jobs.company_id -> companies). */
 export async function fetchOpenJobs(limit = 300): Promise<Job[]> {
