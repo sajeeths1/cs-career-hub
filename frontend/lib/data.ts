@@ -5,7 +5,7 @@ import type { Application, ApplicationStatus, Job, Profile } from "@/lib/types";
 import type { LearningGoal, LearningResource, Skill, SkillOverview } from "@/lib/skill-development";
 import type { Company, NotificationRow, NotificationSettings } from "@/lib/notifications";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications";
-import { collectRoleMatches, targetRolesQuery } from "@/lib/job-personalization";
+import { jobFeedParameters, type JobFeedFilters, type JobPage } from "@/lib/job-feed";
 import { RESUME_FILENAME_HEADER } from "@/lib/resume";
 import { RESUME_LIBRARY_BUCKET, RESUME_LIBRARY_COLUMNS, uploadResumeVersion, type StoredResume, type JobResumeChoice } from "@/lib/resume-library";
 
@@ -18,31 +18,24 @@ const JOB_COLUMNS =
   "id, company_id, title, location, url, posted_at, description, work_mode, companies(name)";
 
 /** Newest open jobs, with each company's name (follows jobs.company_id -> companies). */
-export async function fetchOpenJobs(limit = 300): Promise<Job[]> {
-  const { data, error } = await db()
-    .from("jobs")
-    .select(JOB_COLUMNS)
-    .eq("is_open", true)
-    .order("posted_at", { ascending: false, nullsFirst: false })
-    .limit(limit);
-  if (error) throw error;
-  return (data ?? []) as unknown as Job[];
+export async function fetchOpenJobs(): Promise<Job[]> {
+  return (await fetchJobsPage()).jobs;
 }
 
-/** Match saved role preferences against titles across the database, then return
- * up to 300 newest matches. This does not depend on the general feed's limit. */
-export async function fetchJobsForTargetRoles(roles: readonly string[], signal?: AbortSignal): Promise<Job[]> {
-  const filter = targetRolesQuery(roles);
-  if (!filter) return [];
-  return collectRoleMatches(roles, async (offset, pageSize) => {
-    let query = db().from("jobs").select(JOB_COLUMNS).eq("is_open", true)
-      .or(filter).order("posted_at", { ascending: false, nullsFirst: false })
-      .order("id", { ascending: false }).range(offset, offset + pageSize - 1);
-    if (signal) query = query.abortSignal(signal);
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data ?? []) as unknown as Job[];
-  });
+/** A small dashboard preview; the Jobs tab independently paginates all matches. */
+export async function fetchJobsForYou(signal?: AbortSignal): Promise<Job[]> {
+  return (await fetchJobsPage({ forYou: true }, 0, signal)).jobs;
+}
+
+export async function fetchJobsPage(filters: JobFeedFilters = {}, page = 0, signal?: AbortSignal): Promise<JobPage> {
+  let query = db().rpc("search_scored_open_jobs", jobFeedParameters(filters, page));
+  if (signal) query = query.abortSignal(signal);
+  const { data, error } = await query;
+  if (error) throw error;
+  if (!data || !Array.isArray(data.jobs) || !Number.isInteger(data.total) || data.total < 0) {
+    throw new Error("The job feed returned an invalid page.");
+  }
+  return data as JobPage;
 }
 
 /** Open a tracked job directly even when it is outside either feed or closed. */

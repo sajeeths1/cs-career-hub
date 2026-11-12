@@ -13,6 +13,13 @@ function localDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+export function postedDateRange(filter: PostedDateFilter, today = new Date()): { from: string; to: string } | null {
+  if (filter === "any") return null;
+  const days = filter === "today" ? 1 : filter === "week" ? 7 : 30;
+  const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - days + 1);
+  return { from: localDate(cutoff), to: localDate(today) };
+}
+
 export function matchesPostedDate(
   postedAt: string | null,
   filter: PostedDateFilter,
@@ -20,9 +27,8 @@ export function matchesPostedDate(
 ): boolean {
   if (filter === "any") return true;
   if (!postedAt || !/^\d{4}-\d{2}-\d{2}$/.test(postedAt)) return false;
-  const days = filter === "today" ? 1 : filter === "week" ? 7 : 30;
-  const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - days + 1);
-  return postedAt >= localDate(cutoff) && postedAt <= localDate(today);
+  const range = postedDateRange(filter, today);
+  return range !== null && postedAt >= range.from && postedAt <= range.to;
 }
 
 /** "Near me" uses the student's saved preferred city, not device GPS or distance. */
