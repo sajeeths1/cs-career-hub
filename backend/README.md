@@ -7,7 +7,7 @@ The individual worker setup below is still available.
 
 ## Job ingestion worker (`worker/`)
 
-- `pipeline.py`: the MVP pipeline. Collects jobs from every Greenhouse company in the `companies` table (and adds a starter list of companies), keeps U.S. early-career-friendly CS roles, saves descriptions and work mode, skips duplicates, and closes jobs that disappear.
+- `pipeline.py`: the MVP pipeline. Collects jobs from every Greenhouse, Lever, or Ashby company in the `companies` table (and adds a starter Greenhouse list), keeps U.S. early-career-friendly CS roles, saves descriptions and work mode, skips duplicates, and closes jobs that disappear.
 - `basic_pipeline.py`: the original one-company test. Kept for reference.
 
 ```bash
@@ -21,7 +21,7 @@ python pipeline.py
 Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `worker/.env` or `backend/.env` before running. The dotenv loader searches parent folders.
 Collection needs migrations 000–002. The Skills feature needs migrations 000–005, applied in order by the Data owner.
 
-To add a company: add it to `STARTER_COMPANIES` in `pipeline.py` (name and Greenhouse slug), or insert a row in the `companies` table with `ats_type = 'greenhouse'`.
+To add a company, insert a row in the `companies` table with its display `name`, `ats_type` (`greenhouse`, `lever`, or `ashby`), and board identifier in `ats_slug`. Find the board identifier from the company's public job-board URL. `STARTER_COMPANIES` is only for Greenhouse boards. The pipeline supports one ATS board per company row; existing jobs with the same company, title, and location share a fingerprint and update rather than creating duplicate rows.
 
 ## Database
 

@@ -1,69 +1,48 @@
-# Profile-based job browsing
+# Score-based job browsing
 
-Saved `profiles.target_roles` now drives a **For you** view in Jobs and a **Jobs
-for you** card on the dashboard. **All jobs** remains available alongside it.
-There are no new tables, migrations, backend services, or API keys for this change.
-
-## User flow
-
-1. Open Profile, enter target roles separated by commas, and save. Semicolons and
-   newlines are also accepted; equivalent repeated roles are deduplicated.
-2. Open Jobs. For you shows open postings whose titles match a saved target role.
-3. Switch to All jobs to browse the general newest-job feed at any time.
-4. Search and work-mode filters apply within the chosen view.
-
-Saving a profile updates the recommendations without a page reload. A failed save
-keeps the previous saved preferences. Refresh reloads the saved profile and both
-feeds. New accounts without target roles get a setup prompt in For you, and can
-still browse All jobs. The dashboard falls back to newest jobs until roles exist.
-Profile or recommendation failures have retry controls and do not block All jobs.
+**For you** and the dashboard's **Jobs for you** card use skill-match scores,
+not saved target-role keywords. **All jobs** remains available alongside them.
+Apply migration `013_paginated_job_feed.sql`, then `014_score_based_job_feed.sql`.
+If 013 is already applied, run only 014. There are no new tables or API keys.
 
 ## Matching contract
 
-This is a title-keyword preference filter, not an AI fit score. Each role is a set
-of required title words. All words in one role must match; any saved role can
-qualify a posting. Word order and case do not matter. Descriptions and company
-names are not used to determine role eligibility.
+Skill coverage is the percentage of a posting's distinct tagged skills that the
+signed-in user has in `user_skills`, rounded to a whole percent. It is not the
+planned AI fit score or 70/15/15 scoring formula.
 
-Common variations are normalized: front-end/front end/frontend, back-end/backend,
-full-stack/full stack, engineer/engineering/developer, SWE/SDE, ML/machine learning,
-AI/artificial intelligence, and data science/data scientist. Language tokens keep
-C, C++ and C# distinct. Word matching rejects Java in JavaScript and data in
-database. Other wording may still need broader preferences or a manual search.
+For you includes only scores above 0% and ranks by score descending, then posting
+date and ID descending for ties. Missing tags, no user skills, and 0% scores do
+not qualify. The 50%/75% controls can narrow the feed further. All jobs remains
+newest-first and includes unscored jobs unless a score threshold is selected.
 
-For example, `frontend developer, data analyst` matches Frontend Engineer and
-Data Analyst titles. Data Engineer does not match the data-analyst preference.
-Preferred location and skills do not currently affect this view, and there is no
-numerical match score. The separately planned 70/15/15 scoring worker is still
-future work.
+Add skills in Profile/Skills to personalize recommendations. Updated skills
+refresh recommendations. Saved target roles remain useful for role alerts but
+do not restrict For you. Search, location, posting date and work mode apply in
+both views. Users without matches see an explanatory empty state, not a silent
+fallback to All jobs. Dashboard recommendations use the same ranking.
 
-## Queries and limits
+## Queries and pagination
 
-All browser database calls remain in `frontend/lib/data.ts`. The personalized
-query applies `is_open = true` and a generated title filter in Supabase before
-retrieving candidates. Input is normalized into fixed query templates rather
-than interpolated as PostgREST operators. A final word check rejects broad
-substring candidates.
+Browser reads remain in `frontend/lib/data.ts`. Both feeds call the authenticated
+`search_scored_open_jobs` RPC. It respects table RLS and calculates scores from
+the caller's skills, not a user ID supplied by the browser. Returned scores use
+the same data snapshot as filtering and ordering, so displayed percentages match
+the feed's ranking.
 
-Candidates are fetched in 200-row pages, ordered by posting date and ID, until
-300 matching jobs are found or the candidate set is exhausted. This can find
-matches outside the first 300 jobs in the general feed. Empty preferences issue
-no personalized query. Outdated requests are aborted when preferences change.
+Pages contain up to 50 jobs with a total matching count and Previous/Next
+controls. Neither feed has a total-result cap. Search and filters run in the
+database before pagination. Changing filters or skills resets to page one;
+outdated requests are aborted and search is debounced. The dashboard loads a
+50-job preview independently of the current feed filters.
 
-Each view displays at most 300 results. All jobs retains its original general
-feed limit, and free-text/work-mode filtering remains local to the selected
-view's loaded results. This change does not implement general server-side search
-and pagination. The Skills title focus remains independent of this job view.
-
-Tracked postings can be opened directly by ID even when outside either feed or
-closed; switching preferences does not hide a student's tracker entries.
+Tracked jobs and direct links remain accessible independently of score, open
+status or current feed page. Role-based notification behavior is unchanged.
 
 ## Validation
 
-Run `npm test`, `npm run lint`, `npx tsc --noEmit` and `npm run build` from frontend.
-Tests cover parsing, aliases, word boundaries, language punctuation, safe filter
-construction, pagination beyond 300 candidates, ordering, deduplication and errors.
-Browser checks with mocked Supabase responses cover saved profile changes,
-reloads, failed saves, missing roles, retries, both views, search/work mode,
-tracked-job details and mobile layout. Read-only requests against the configured
-Supabase project verify that the generated nested title filters are accepted.
+Run `npm test`, `npx tsc --noEmit`, `npm run lint` and `npm run build` from frontend.
+SQL regression scripts in `supabase/tests` run as database owner and roll back
+their fixtures. Verify positive-score inclusion, global ranking across pages,
+rounding, score thresholds, no-skill/untagged empty states, and unchanged All jobs
+ordering. The original migration 013 query remains available for older clients.

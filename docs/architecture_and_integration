@@ -54,12 +54,12 @@ Skill extraction is separately enabled and is not run by that workflow. See [the
 
 ## Profile personalization update
 
-Saved target roles now personalize the Jobs **For you** view and dashboard
-suggestions. The browser uses the existing Supabase API to query open titles,
-normalizes common role wording and checks word matches. It can retrieve matches
-beyond the general feed's first 300 jobs, while displaying up to 300 matches.
-**All jobs** remains available. Saving a profile refreshes recommendations.
-There are no new schema changes or fit scores. Location preferences and the
+Skill-match scores now personalize the Jobs **For you** view and dashboard
+suggestions. Migration 014 adds a security-invoker job-search RPC that selects
+positive scores and ranks them highest first in the database. Both feeds use
+50-job pages and can browse beyond 300 matches.
+**All jobs** remains newest-first. Updating skills refreshes recommendations.
+There are no new tables or AI fit scores. Location preferences and the
 planned 70/15/15 scoring formula are separate future work. See
 [profile personalization](profile_personalization.md) for the contract and limits.
 
@@ -179,7 +179,7 @@ Every database call lives in this one file:
 
 | Function | What it does | Supabase query |
 | :-- | :-- | :-- |
-| `fetchOpenJobs(limit = 300)` | Newest open jobs, with company name | `from("jobs").select("…, companies(name)").eq("is_open", true).order("posted_at", desc).limit(300)` |
+| `fetchJobsPage(filters, page)` | Filtered open jobs, company name, scores and total count | `rpc("search_scored_open_jobs", parameters)`; 50-job pages, score-first for For you and newest-first for All jobs |
 | `fetchApplications()` | The student's tracker, with job and company | `from("applications").select("…, jobs(…, companies(name))").order("updated_at", desc)` |
 | `setApplicationStatus(userId, jobId, status)` | Add a job to the tracker or change its status | `upsert({...}, { onConflict: "user_id,job_id" })` |
 | `removeApplication(id)` | Remove a job from the tracker | `delete().eq("id", id)` |
@@ -217,7 +217,7 @@ The dashboard keeps the original layout but uses real data:
 | Profile | Real | Loads and saves the `profiles` row |
 
 - **Loading:** jobs and applications load in parallel when the page opens; the refresh button reloads them. Errors show in a red banner.
-- **Search and filters** run in the browser over the loaded jobs (title, company name, location, and work mode).
+- **Job-feed search and filters** run in the database before pagination (title, company name, location, work mode, dates and skill coverage). For you ranks positive scores; tracker filters remain local.
 - **Tracking a job** upserts into `applications`, so saving a job that is already tracked updates it instead of duplicating it. Tracked jobs show "✓ Saved" or "✓ Applied" instead of a Save button.
 - **Older `not_applied` rows** are shown in the Saved column so nothing is hidden.
 - **Tabs** (`components/ui/tabs.tsx`) can now be switched from code, for example clicking a tracker card opens that job in the Jobs tab.
@@ -267,7 +267,7 @@ Save ─► setApplicationStatus(userId, jobId, "saved")
 | Match scores are not implemented | Planned: LLM extraction of required/optional skills and precomputed 70/15/15 scoring; keyword skill mentions are available now |
 | Skill demand needs a backfill | After migration 005, run `python skills.py --limit 50` until there is no pending work; counts use stored tags and show analysis coverage |
 | Resume parsing requires an OCR runtime | Install `backend/resume` requirements and Tesseract alongside Next.js; students review fields/skills before saving. Files and raw text are not persisted. |
-| Website loads the newest 300 open jobs | Search and filters only cover those; add pagination later |
+| Job feed uses offset pagination | Stable date/ID ordering; concurrent inserts or removals can shift page boundaries |
 | Pipeline runs manually | Next: run it automatically every few hours with GitHub Actions |
 | Only Greenhouse is supported | Add Lever, Ashby and community GitHub lists |
 | Title and location filter is keyword-based | Some jobs will be wrongly kept or dropped |

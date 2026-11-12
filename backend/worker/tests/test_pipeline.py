@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from pipeline import CLOSE_AFTER_DAYS, backfill_company_logos, find_closing_soon_jobs, guess_logo_url
+from pipeline import CLOSE_AFTER_DAYS, backfill_company_logos, find_closing_soon_jobs, guess_logo_url, seed_companies
 
 
 class Query:
@@ -99,8 +99,9 @@ class CompanyQuery:
         self.filters.append(("is", key, value))
         return self
 
-    def upsert(self, rows, on_conflict=None):
+    def upsert(self, rows, on_conflict=None, ignore_duplicates=False):
         self.action, self.payload, self.on_conflict = "upsert", rows, on_conflict
+        self.ignore_duplicates = ignore_duplicates
         return self
 
     def update(self, values):
@@ -112,7 +113,8 @@ class CompanyQuery:
             for incoming in self.payload:
                 existing = next((row for row in self.rows if row.get(self.on_conflict) == incoming.get(self.on_conflict)), None)
                 if existing:
-                    existing.update(incoming)
+                    if not self.ignore_duplicates:
+                        existing.update(incoming)
                 else:
                     self.rows.append(incoming)
             return SimpleNamespace(data=self.payload)
@@ -147,14 +149,16 @@ class LogoTests(unittest.TestCase):
     def test_guess_logo_url_derives_from_slug(self):
         self.assertEqual(guess_logo_url("stripe"), "https://www.google.com/s2/favicons?domain=stripe.com&sz=128")
 
-    def test_backfill_only_touches_greenhouse_companies_missing_a_logo(self):
+    def test_backfill_touches_supported_ats_companies_missing_a_logo(self):
         companies = [
             {"id": 1, "ats_type": "greenhouse", "ats_slug": "stripe", "logo_url": None},
             {"id": 2, "ats_type": "greenhouse", "ats_slug": "airbnb", "logo_url": "https://existing.example.com/airbnb.png"},
+            {"id": 3, "ats_type": "lever", "ats_slug": "example-lever", "logo_url": None},
+            {"id": 4, "ats_type": "ashby", "ats_slug": "example-ashby", "logo_url": None},
         ]
         client = CompanyClient(companies)
         updated = backfill_company_logos(client)
-        self.assertEqual(updated, 1)
+        self.assertEqual(updated, 3)
         self.assertEqual(companies[0]["logo_url"], "https://www.google.com/s2/favicons?domain=stripe.com&sz=128")
         self.assertEqual(companies[1]["logo_url"], "https://existing.example.com/airbnb.png")
 
@@ -162,6 +166,15 @@ class LogoTests(unittest.TestCase):
         companies = [{"id": 1, "ats_type": "greenhouse", "ats_slug": "stripe", "logo_url": "https://existing.example.com/s.png"}]
         client = CompanyClient(companies)
         self.assertEqual(backfill_company_logos(client), 0)
+
+
+class SeedCompanyTests(unittest.TestCase):
+    def test_seed_does_not_replace_a_companys_custom_ats(self):
+        companies = [{"name": "Stripe", "ats_type": "lever", "ats_slug": "stripe-jobs"}]
+
+        seed_companies(CompanyClient(companies))
+
+        self.assertEqual(companies[0], {"name": "Stripe", "ats_type": "lever", "ats_slug": "stripe-jobs"})
 
 
 if __name__ == "__main__":

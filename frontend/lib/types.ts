@@ -20,6 +20,7 @@ export type Job = {
   description: string | null;
   work_mode: WorkMode;
   companies: { name: string } | null;
+  match_score?: { matched: number; total: number; percent: number } | null;
 };
 
 export type Application = {
