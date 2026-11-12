@@ -15,7 +15,7 @@ function db() {
 }
 
 const JOB_COLUMNS =
-  "id, company_id, title, location, url, posted_at, description, work_mode, companies(name)";
+  "id, company_id, title, location, url, posted_at, description, work_mode, companies(name, logo_url)";
 
 /** Newest open jobs, with each company's name (follows jobs.company_id -> companies). */
 export async function fetchOpenJobs(limit = 300): Promise<Job[]> {
@@ -56,7 +56,7 @@ export async function fetchJob(jobId: number): Promise<Job | null> {
 export async function fetchApplications(): Promise<Application[]> {
   const { data, error } = await db()
     .from("applications")
-    .select("id, job_id, status, updated_at, jobs(id, title, url, location, posted_at, work_mode, companies(name))")
+    .select("id, job_id, status, updated_at, jobs(id, title, url, location, posted_at, work_mode, companies(name, logo_url))")
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as unknown as Application[];

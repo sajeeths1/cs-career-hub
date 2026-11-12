@@ -19,7 +19,7 @@ export type Job = {
   posted_at: string | null;
   description: string | null;
   work_mode: WorkMode;
-  companies: { name: string } | null;
+  companies: { name: string; logo_url?: string | null } | null;
 };
 
 export type Application = {
