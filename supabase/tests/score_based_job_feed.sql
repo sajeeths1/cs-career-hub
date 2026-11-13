@@ -12,7 +12,9 @@ declare
   all_ids bigint[] := '{}';
   page_offset integer;
 begin
-  insert into public.profiles (id) values (fixture_user), (other_user);
+  insert into auth.users (id, email) values
+    (fixture_user, fixture_user::text || '@example.invalid'),
+    (other_user, other_user::text || '@example.invalid');
   perform set_config('request.jwt.claim.sub', fixture_user::text, true);
   insert into public.companies (name) values (fixture_name) returning id into fixture_company;
   insert into public.skills (name) values (fixture_name || '_one') returning id into skill_one;
