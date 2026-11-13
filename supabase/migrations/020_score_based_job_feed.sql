@@ -1,5 +1,5 @@
 -- Replace role-based recommendations with positive skill-coverage scores.
--- Migration 013 remains available for older frontend deployments.
+-- Migration 019 remains available for older frontend deployments.
 begin;
 
 create function public.search_scored_open_jobs(

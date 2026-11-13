@@ -2,7 +2,7 @@
 
 **For you** and the dashboard's **Jobs for you** card use skill-match scores,
 not saved target-role keywords. **All jobs** remains available alongside them.
-Apply migration `013_paginated_job_feed.sql`, then `014_score_based_job_feed.sql`.
+Apply migration `019_paginated_job_feed.sql`, then `020_score_based_job_feed.sql`.
 Do not rerun migrations already applied. The newer location/skill controls also
 require `018_job_feed_filters.sql` after the existing migrations.
 There are no new tables or API keys.
@@ -52,4 +52,4 @@ Run `npm test`, `npx tsc --noEmit`, `npm run lint` and `npm run build` from fron
 SQL regression scripts in `supabase/tests` run as database owner and roll back
 their fixtures. Verify positive-score inclusion, global ranking across pages,
 rounding, score thresholds, no-skill/untagged empty states, and unchanged All jobs
-ordering. The original migration 013 query remains available for older clients.
+ordering. The original migration 019 query remains available for older clients.
