@@ -1,3 +1,5 @@
 supabase
 requests
 python-dotenv
+ollama
+pydantic

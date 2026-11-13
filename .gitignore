@@ -152,6 +152,8 @@ activemq-data/
 
 # Dependencies
 node_modules/
+.next/
+*.tsbuildinfo
 
 # Next.js
 .next/
@@ -236,3 +238,6 @@ node_modules/
 
 # Next.js local env files (hold Supabase keys)
 .env*.local
+
+# Supabase CLI local state
+supabase/.temp/

@@ -12,13 +12,17 @@ export type ApplicationStatus =
 
 export type Job = {
   id: number;
+  company_id: number;
   title: string;
   location: string | null;
   url: string;
   posted_at: string | null;
   description: string | null;
   work_mode: WorkMode;
-  companies: { name: string } | null;
+  companies: { name: string; logo_url?: string | null } | null;
+  match_score?: { matched: number; total: number; percent: number } | null;
+  /** Recorded pipeline skills; absence is unknown, never a zero match. */
+  job_skills?: { skill_id: number; skills: Skill | null }[];
 };
 
 export type Application = {
@@ -26,7 +30,7 @@ export type Application = {
   job_id: number;
   status: ApplicationStatus;
   updated_at: string;
-  jobs: Pick<Job, "id" | "title" | "url" | "location" | "companies"> | null;
+  jobs: Pick<Job, "id" | "title" | "url" | "location" | "posted_at" | "work_mode" | "companies"> | null;
 };
 
 export type Profile = {
@@ -35,9 +39,11 @@ export type Profile = {
   major: string | null;
   preferred_location: string | null;
   target_roles: string | null;
+  school?: string | null;
+  grad_year?: number | null;
 };
 
-/** Tracker columns, in order. not_applied is treated like "saved" in the UI. */
+/** Visible tracker statuses, in order. Legacy not_applied rows appear as Saved. */
 export const TRACKER_COLUMNS: { status: ApplicationStatus; label: string }[] = [
   { status: "saved", label: "Saved" },
   { status: "applied", label: "Applied" },
@@ -51,4 +57,46 @@ export const WORK_MODE_LABELS: Record<WorkMode, string> = {
   hybrid: "Hybrid",
   in_person: "In person",
   unknown: "Not listed",
+};
+
+// Skill-development tables and the read-only reporting RPC.
+export type Skill = { id: number; name: string };
+export type LearningGoal = { skill_id: number; status: "planned" | "in_progress" | "completed" };
+export type LearningResource = {
+  skill_id: number; title: string; url: string; suggested_goal: string;
+};
+export type SkillDemand = {
+  skill_id: number; count: number; recent_count: number; previous_count: number;
+  examples: { id: number; title: string; url: string; company_name: string }[];
+};
+export type SkillOverview = {
+  total_open_jobs: number; matching_jobs: number; analyzed_jobs: number; skills: SkillDemand[];
+};
+export type RankedSkill = SkillDemand & { skill: Skill; known: boolean };
+
+// Notifications: priority companies, preferences and the in-app feed (migrations 003, 006, 009).
+export type Company = { id: number; name: string; logo_url: string | null };
+
+export type DigestFrequency = "daily" | "weekly" | "off";
+
+export type NotificationSettings = {
+  user_id: string;
+  email_enabled: boolean;
+  instant_priority_alerts: boolean;
+  digest_frequency: DigestFrequency;
+  target_role_digest_frequency: DigestFrequency;
+};
+
+export type NotificationSource = "priority_company" | "target_role";
+export type NotificationKind = "new_posting" | "closing_soon";
+
+export type NotificationRow = {
+  id: number;
+  job_id: number;
+  created_at: string;
+  read_at: string | null;
+  source: NotificationSource;
+  kind: NotificationKind;
+  jobs: { title: string; url: string } | null;
+  companies: { name: string; logo_url: string | null } | null;
 };

@@ -3,14 +3,14 @@ import {
   CheckCircle2,
   ClipboardList,
   LayoutDashboard,
-  Target,
   UserRound,
+  Target,
 } from "lucide-react";
 
 export const navItems = [
   { label: "Dashboard", icon: LayoutDashboard },
   { label: "Jobs", icon: Briefcase },
-  { label: "Applications", icon: ClipboardList },
+  { label: "Tracker", icon: ClipboardList },
   { label: "Skills", icon: Target },
   { label: "Profile", icon: UserRound },
 ];
@@ -53,13 +53,6 @@ export const jobs = [
     description:
       "Analyze product and operations data, build dashboards, and communicate insights to technical and non-technical teammates.",
   },
-];
-
-export const skillDemand = [
-  { skill: "Python", score: 86 },
-  { skill: "React", score: 78 },
-  { skill: "SQL", score: 71 },
-  { skill: "AWS", score: 54 },
 ];
 
 export const applicationColumns = [

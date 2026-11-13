@@ -1,0 +1,25 @@
+import type { NotificationKind, NotificationRow, NotificationSource } from "@/lib/types";
+export type { Company, DigestFrequency, NotificationKind, NotificationRow, NotificationSettings, NotificationSource } from "@/lib/types";
+
+export const DEFAULT_NOTIFICATION_SETTINGS = {
+  email_enabled: true,
+  instant_priority_alerts: true,
+  digest_frequency: "weekly" as const,
+  target_role_digest_frequency: "off" as const,
+};
+
+export const MAX_PRIORITY_COMPANIES = 10;
+
+export const SOURCE_LABELS: Record<NotificationSource, string> = {
+  priority_company: "Priority",
+  target_role: "Matches your roles",
+};
+
+export const KIND_LABELS: Record<NotificationKind, string> = {
+  new_posting: "New posting",
+  closing_soon: "Closing soon",
+};
+
+export function unreadCount(notifications: NotificationRow[]): number {
+  return notifications.filter((row) => !row.read_at).length;
+}

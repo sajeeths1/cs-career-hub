@@ -1,0 +1,101 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { PriorityCompanyButton } from "@/components/priority-company-button";
+import { fetchCompanies, fetchPriorityCompanyIds } from "@/lib/data";
+import { MAX_PRIORITY_COMPANIES } from "@/lib/notifications";
+import type { Company } from "@/lib/types";
+
+/** Prioritize up to 10 companies for alerts. */
+export function CompaniesTab({ userId, onPriorityToggled }: { userId: string; onPriorityToggled?: (companyId: number, priority: boolean) => void }) {
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [priorityIds, setPriorityIds] = useState<number[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setLoadError(null);
+    Promise.all([fetchCompanies(), fetchPriorityCompanyIds(userId)])
+      .then(([companyRows, priority]) => {
+        if (!active) return;
+        setCompanies(companyRows);
+        setPriorityIds(priority);
+      })
+      .catch((err: Error) => { if (active) setLoadError(err.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [userId, attempt]);
+
+  const filteredCompanies = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return term ? companies.filter((company) => company.name.toLowerCase().includes(term)) : companies;
+  }, [companies, search]);
+
+  function handlePriorityToggled(companyId: number, priority: boolean) {
+    setPriorityIds((ids) => (priority ? [...ids, companyId] : ids.filter((id) => id !== companyId)));
+    onPriorityToggled?.(companyId, priority);
+  }
+
+  return (
+    <div className="grid min-w-0 grid-cols-1 gap-6">
+      {loadError ? (
+        <div role="alert" className="grid gap-2 text-sm text-red-600">
+          <p>Could not load companies: {loadError}</p>
+          <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>Retry</Button>
+        </div>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Priority companies</CardTitle>
+          <CardDescription>
+            Choose up to {MAX_PRIORITY_COMPANIES} companies for job alerts. Alert timing is configured alongside this list.
+            {" "}{priorityIds.length} / {MAX_PRIORITY_COMPANIES} prioritized.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {loading ? <p role="status" className="text-sm text-muted-foreground">Loading companies…</p> : null}
+          {!loading ? (
+            <>
+              <Input
+                aria-label="Find a company"
+                placeholder="Find a company"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{filteredCompanies.length} of {companies.length} companies · scroll to browse</p>
+              <ul aria-label="Companies to prioritize" tabIndex={0}
+                className="grid max-h-[19.5rem] content-start gap-2 overflow-y-auto overscroll-contain rounded-md pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                {filteredCompanies.map((company) => (
+                  <li className="flex h-14 items-center gap-2 rounded-md border p-2" key={company.id}>
+                    {company.logo_url ? (
+                      <img alt="" className="h-6 w-6 shrink-0 rounded object-contain" src={company.logo_url} />
+                    ) : null}
+                    <span title={company.name} className="min-w-0 flex-1 truncate text-sm font-medium">{company.name}</span>
+                    <PriorityCompanyButton
+                      companyId={company.id}
+                      companyName={company.name}
+                      isActive={priorityIds.includes(company.id)}
+                      onToggled={handlePriorityToggled}
+                      userId={userId}
+                    />
+                  </li>
+                ))}
+              </ul>
+              {filteredCompanies.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No companies match this search.</p>
+              ) : null}
+            </>
+          ) : null}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
