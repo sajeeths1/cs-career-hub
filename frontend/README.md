@@ -40,9 +40,9 @@ See [Skills setup](../docs/skill_development.md) and the
 
 ## Paginated job browsing
 
-Apply `supabase/migrations/013_paginated_job_feed.sql`, then
-`supabase/migrations/014_score_based_job_feed.sql` before deploying this frontend.
-Migration 014 adds the authenticated, RLS-respecting `search_scored_open_jobs`
+Apply `supabase/migrations/019_paginated_job_feed.sql`, then
+`supabase/migrations/020_score_based_job_feed.sql` before deploying this frontend.
+Migration 020 adds the authenticated, RLS-respecting `search_scored_open_jobs`
 RPC; there are no new tables or API keys. Do not rerun migrations already applied.
 After the existing migrations, apply `supabase/migrations/018_job_feed_filters.sql`.
 The current frontend calls its `search_filtered_open_jobs` RPC to support multiple
@@ -69,7 +69,7 @@ logos along with scores, so these fields are available on every feed page.
 
 `supabase/tests/paginated_job_feed.sql` checks both feeds against more than
 300 fixture postings and rolls the fixtures back. Run it as the database owner
-after applying migration 013.
+after applying migration 019.
 `supabase/tests/score_based_job_feed.sql` checks positive-score inclusion,
 ranking beyond 300 matches, thresholds, per-user scores and unchanged All jobs
-after migration 014.
+after migration 020.

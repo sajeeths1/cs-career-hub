@@ -55,7 +55,7 @@ Skill extraction is separately enabled and is not run by that workflow. See [the
 ## Profile personalization update
 
 Skill-match scores now personalize the Jobs **For you** view and dashboard
-suggestions. Migration 014 adds a security-invoker job-search RPC that selects
+suggestions. Migration 020 adds a security-invoker job-search RPC that selects
 positive scores and ranks them highest first in the database. Both feeds use
 50-job pages and can browse beyond 300 matches.
 **All jobs** remains newest-first. Updating skills refreshes recommendations.

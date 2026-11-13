@@ -1,4 +1,4 @@
--- Run after migration 013 as the database owner. All fixtures are rolled back.
+-- Run after migration 019 as the database owner. All fixtures are rolled back.
 begin;
 do $$
 declare
