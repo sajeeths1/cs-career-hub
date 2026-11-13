@@ -43,7 +43,10 @@ See [Skills setup](../docs/skill_development.md) and the
 Apply `supabase/migrations/013_paginated_job_feed.sql`, then
 `supabase/migrations/014_score_based_job_feed.sql` before deploying this frontend.
 Migration 014 adds the authenticated, RLS-respecting `search_scored_open_jobs`
-RPC; there are no new tables or API keys. If 013 is already applied, run only 014.
+RPC; there are no new tables or API keys. Do not rerun migrations already applied.
+After the existing migrations, apply `supabase/migrations/018_job_feed_filters.sql`.
+The current frontend calls its `search_filtered_open_jobs` RPC to support multiple
+location chips and the 100% skill-match option. Earlier RPCs remain intact.
 
 Both All jobs and For you use 50-job pages with Previous/Next controls and a
 matching-job count. Search (title, company, location),
@@ -57,6 +60,12 @@ skill-coverage scores, highest first, then newest date/ID for ties.
 Target roles no longer determine these recommendations (role alerts are
 unchanged). Jobs with no tags, no overlapping skills or a 0% score are excluded;
 users without skills can still browse All jobs. All jobs remains newest-first.
+
+Selected locations match any chip by normalized, whole location text (case,
+accents and punctuation are ignored). Skill thresholds use unrounded coverage:
+a displayed rounded 50% does not pass 50% unless the actual ratio reaches it.
+The query returns recorded skill names/IDs for the skill breakdown and company
+logos along with scores, so these fields are available on every feed page.
 
 `supabase/tests/paginated_job_feed.sql` checks both feeds against more than
 300 fixture postings and rolls the fixtures back. Run it as the database owner

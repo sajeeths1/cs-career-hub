@@ -44,7 +44,7 @@ export async function fetchJobsForYou(signal?: AbortSignal): Promise<Job[]> {
 }
 
 export async function fetchJobsPage(filters: JobFeedFilters = {}, page = 0, signal?: AbortSignal): Promise<JobPage> {
-  let query = db().rpc("search_scored_open_jobs", jobFeedParameters(filters, page));
+  let query = db().rpc("search_filtered_open_jobs", jobFeedParameters(filters, page));
   if (signal) query = query.abortSignal(signal);
   const { data, error } = await query;
   if (error) throw error;

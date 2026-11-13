@@ -23,7 +23,7 @@ import { JobsFilters } from "@/components/jobs-filters";
 import { summarizeJobLocation } from "@/lib/job-presentation";
 import { averagePercent, MATCH_FILTERS, formatMatch, matchScore, matchesScoreFilter, matchTone, type JobMatch, type MatchFilter } from "@/lib/job-match";
 import { JobSkillBreakdown, SkillMatchBadge, type SkillMatchState } from "@/components/job-skill-match";
-import { getJobSkillMatch, meetsSkillMinimum, type JobSkillMatch } from "@/lib/job-skill-match";
+import { getJobSkillMatch, type JobSkillMatch } from "@/lib/job-skill-match";
 import type { ParsedResume, ResumeDraft } from "@/lib/resume";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,7 +54,6 @@ import {
 } from "@/lib/data";
 import { navItems } from "@/lib/mock-data";
 import { JOB_PAGE_SIZE, type JobFeedFilters } from "@/lib/job-feed";
-import { formatMatch, MATCH_FILTERS, matchesScoreFilter, matchScore, type JobMatch, type MatchFilter } from "@/lib/job-match";
 import { matchesPostedDate, matchesLocation, POSTED_DATE_FILTERS, type LocationFilter, type PostedDateFilter } from "@/lib/job-filters";
 import { supabase } from "@/lib/supabase";
 import {
@@ -157,11 +156,10 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [jobSkillIds, setJobSkillIds] = useState<Map<number, number[]>>(() => new Map());
   const [trackerMatchFilter, setTrackerMatchFilter] = useState<MatchFilter>("any");
   const feedFilters = useMemo<JobFeedFilters>(() => ({
-    search, workMode, postedDate: jobPostedDate, location: jobLocation,
-    locationQuery: jobLocationQuery, preferredLocation: profile?.preferred_location,
-    matchFilter: jobMatchFilter,
+    search, workMode, postedDate: jobPostedDate,
+    locations: jobLocations, minimumMatch: minimumSkillMatch,
     forYou: jobView === "for_you",
-  }), [search, workMode, jobPostedDate, jobLocation, jobLocationQuery, profile?.preferred_location, jobMatchFilter, jobView]);
+  }), [search, workMode, jobPostedDate, jobLocations, minimumSkillMatch, jobView]);
   const skillsKey = JSON.stringify(knownSkillIds);
   const feedKey = JSON.stringify([jobView, feedFilters, skillsKey]);
   const [pagination, setPagination] = useState({ key: "", page: 0 });
@@ -174,7 +172,6 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   }>({ key: "", page: 0, jobs: [], total: 0, loading: true, error: null });
 
   useEffect(() => {
-    if (jobLocation === "near_me" && (profileLoading || profileError)) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setFeed({ key: feedKey, page, jobs: [], total: 0, loading: true, error: null });
@@ -191,7 +188,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
         });
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [feedKey, feedFilters, page, recommendationRefresh, jobLocation, profileLoading, profileError]);
+  }, [feedKey, feedFilters, page, recommendationRefresh]);
 
   // Re-read after visiting Skills so manual edits and approved resume skills appear immediately.
   // Cleanup prevents stale requests from overwriting a later load or another account's state.
@@ -227,8 +224,6 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
       .then((rows) => setClosingSoon(rows.filter((row) => row.kind === "closing_soon")))
       .catch(() => undefined);
   }, [userId]);
-  const rolesKey = profile?.target_roles ?? "";
-  const targetRoles = useMemo(() => parseTargetRoles(rolesKey), [rolesKey]);
 
   const loadProfile = useCallback(async () => {
     const request = ++profileRequest.current;
@@ -268,9 +263,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const recommendationError = personalized.key === skillsKey ? personalized.error : null;
   const feedCurrent = feed.key === feedKey && feed.page === page;
   const viewJobs = useMemo(() => feedCurrent ? feed.jobs : [], [feedCurrent, feed.jobs]);
-  const locationProfileError = jobLocation === "near_me" ? profileError : null;
-  const viewLoading = !locationProfileError && (!feedCurrent || feed.loading || (jobLocation === "near_me" && profileLoading));
-  const feedError = locationProfileError ?? (feedCurrent ? feed.error : null);
+  const viewLoading = !feedCurrent || feed.loading;
+  const feedError = feedCurrent ? feed.error : null;
   const dashboardJobs = recommendedJobs;
   const dashboardLoading = loading || recommendationsLoading;
 
@@ -357,7 +351,11 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
       .map((job) => [job.id, job.match_score ?? null]),
   ), [recommendedJobs, viewJobs]);
   const matchFor = useCallback(
-    (jobId: number) => storedMatches.has(jobId) ? storedMatches.get(jobId) ?? null : matchScore(jobSkillIds.get(jobId) ?? [], knownSkillIds),
+    (jobId: number) => {
+      if (storedMatches.has(jobId)) return storedMatches.get(jobId) ?? null;
+      if (knownSkillIds === null) return null;
+      return matchScore(jobSkillIds.get(jobId) ?? [], knownSkillIds);
+    },
     [storedMatches, jobSkillIds, knownSkillIds],
   );
 
@@ -519,7 +517,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             />
           </div>
           <Button aria-label="Refresh" size="icon" variant="outline" onClick={() => {
-            void loadAll(); void loadProfile(); void loadPriorityCompanies(); void loadKnownSkills(); setRecommendationRefresh((n) => n + 1);
+            void loadAll(); void loadProfile(); void loadPriorityCompanies(); setSkillRefresh((n) => n + 1); setRecommendationRefresh((n) => n + 1);
           }}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
@@ -605,18 +603,18 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                   <CardHeader className="flex flex-row items-start justify-between gap-4">
                     <div>
                       <CardTitle>Jobs For You</CardTitle>
-                      <CardDescription>{dashboardPersonalized ? "Based on your target roles." : "Add target roles in your profile to personalize this list."}</CardDescription>
+                      <CardDescription>Based on your skill-match scores.</CardDescription>
                     </div>
-                    <Button size="sm" variant="outline" onClick={() => { changeJobView(dashboardPersonalized ? "for_you" : "all"); setTab("jobs"); }}>See all jobs</Button>
+                    <Button size="sm" variant="outline" onClick={() => { changeJobView("for_you"); setTab("jobs"); }}>See matching jobs</Button>
                   </CardHeader>
                   <CardContent className="flex min-h-0 flex-1 flex-col">
                     {dashboardLoading && <EmptyText text="Loading jobs…" />}
                     {!dashboardLoading && recommendationError && <p role="alert" className="text-sm text-red-600">Could not load personalized jobs. Open Jobs to retry.</p>}
-                    {!dashboardLoading && !recommendationError && unseenDashboardJobs.length === 0 && <EmptyText text="No new jobs to show yet. Browse all jobs or update your target roles." />}
+                    {!dashboardLoading && !recommendationError && unseenDashboardJobs.length === 0 && <EmptyText text="No new skill-matched jobs to show. Browse All jobs or add skills in your profile." />}
                     {!dashboardLoading && unseenDashboardJobs.length > 0 && (
                       <div className="flex h-[400px] flex-col gap-2.5 overflow-y-auto pr-1.5">
                         {unseenDashboardJobs.slice(0, 10).map((job) => (
-                          <DashboardJobCard key={job.id} job={job} match={matchFor(job.id)} onOpen={() => void openJob(job.id, dashboardPersonalized ? "for_you" : "all")} />
+                          <DashboardJobCard key={job.id} job={job} match={matchFor(job.id)} onOpen={() => void openJob(job.id, "for_you")} />
                         ))}
                       </div>
                     )}
@@ -700,7 +698,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                 <CardContent key={`${feedKey}:${page}`} className="grid max-h-[70vh] gap-3 overflow-y-auto">
                   {viewLoading && <p role="status" className="text-sm text-muted-foreground">Loading jobs…</p>}
                   {!viewLoading && feedError && <div role="alert" className="grid gap-3 text-sm">
-                    <p>Could not load jobs: {feedError}</p><Button variant="outline" onClick={() => { if (locationProfileError) void loadProfile(); setRecommendationRefresh((n) => n + 1); }}>Retry jobs</Button>
+                    <p>Could not load jobs: {feedError}</p><Button variant="outline" onClick={() => setRecommendationRefresh((n) => n + 1)}>Retry jobs</Button>
                   </div>}
                   {!viewLoading && !feedError && filteredJobs.length === 0 ? (
                     <EmptyText text={jobView === "for_you" ? "No jobs have a positive skill-match score with these filters. Add skills in your profile, clear filters, or browse All jobs. Untagged jobs cannot be scored." : "No jobs match your search and filters."} />

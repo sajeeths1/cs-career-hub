@@ -3,7 +3,9 @@
 **For you** and the dashboard's **Jobs for you** card use skill-match scores,
 not saved target-role keywords. **All jobs** remains available alongside them.
 Apply migration `013_paginated_job_feed.sql`, then `014_score_based_job_feed.sql`.
-If 013 is already applied, run only 014. There are no new tables or API keys.
+Do not rerun migrations already applied. The newer location/skill controls also
+require `018_job_feed_filters.sql` after the existing migrations.
+There are no new tables or API keys.
 
 ## Matching contract
 
@@ -13,7 +15,8 @@ planned AI fit score or 70/15/15 scoring formula.
 
 For you includes only scores above 0% and ranks by score descending, then posting
 date and ID descending for ties. Missing tags, no user skills, and 0% scores do
-not qualify. The 50%/75% controls can narrow the feed further. All jobs remains
+not qualify. The 50%/75%/100% controls narrow the feed using the unrounded
+coverage ratio, even though badges show rounded percentages. All jobs remains
 newest-first and includes unscored jobs unless a score threshold is selected.
 
 Add skills in Profile/Skills to personalize recommendations. Updated skills
@@ -25,10 +28,14 @@ fallback to All jobs. Dashboard recommendations use the same ranking.
 ## Queries and pagination
 
 Browser reads remain in `frontend/lib/data.ts`. Both feeds call the authenticated
-`search_scored_open_jobs` RPC. It respects table RLS and calculates scores from
+`search_filtered_open_jobs` RPC (migration 018). It respects table RLS and calculates scores from
 the caller's skills, not a user ID supplied by the browser. Returned scores use
 the same data snapshot as filtering and ordering, so displayed percentages match
 the feed's ranking.
+
+Multiple location chips match any added place using normalized word boundaries,
+ignoring case, accents and punctuation. All filters run before pagination.
+The response includes skill IDs/names and company logos for the newer UI.
 
 Pages contain up to 50 jobs with a total matching count and Previous/Next
 controls. Neither feed has a total-result cap. Search and filters run in the
